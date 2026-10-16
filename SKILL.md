@@ -303,7 +303,7 @@ CLI 从调用声明中只取 `use`。也可以把 `use` 中的 `workflow:` 引�
 
 选中 `workflow:` 引用且输入未提供 `type` 时，CLI 只读取所选 workflow 的定义来取得第一个输入枚举，不递归读取其子 workflow 或 skill，输出仍保留原引用。相对的资源目录按 CLI 脚本所属的 skill 根目录定位；目标 session 按其所加载的本 skill 解释这些相对目录。显式提供 `type` 时，CLI 无需读取引用资源。
 
-将 CLI 生成文件中的完整 prompt 交给目标 session；未指定输出文件时，使用标准输出。对于 Lody，新建时可作为 `lody_session_create` 的 `prompt`；已有或复用的 session 使用 `lody_session_chat`，其中 `sessionId` 填解析得到的实际 ID，`prompt` 填 CLI 输出。若 CLI 生成失败，先处理错误，再派发本次调用。
+将 CLI 生成文件中的完整 prompt 原样交给目标 session；未指定输出文件时，使用标准输出。传递给其他 session 的消息正文仅包含 CLI 生成的文本，不追加任何解释、说明或额外指令。对于 Lody，新建时可作为 `lody_session_create` 的 `prompt`；已有或复用的 session 使用 `lody_session_chat`，其中 `sessionId` 填解析得到的实际 ID，`prompt` 原样填入 CLI 输出。若 CLI 生成失败，先处理错误，再派发本次调用。
 
 目标 session 的实际 ID 由执行方用于投递，不需要加入 prompt 的 context。`context.sessions` 只包含显式导入给被调用 workflow 使用的会话引用；`in.new.as` 注册的名字属于调用方，不自动成为被调用方的局部引用。
 
