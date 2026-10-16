@@ -36,7 +36,7 @@ graph:
       in:
         new:
           workspace: ^
-          history: fork
+          history: none
     simplify:
       use: {
         "role": "^",
