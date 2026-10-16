@@ -24,7 +24,7 @@ from typing import Any
 import yaml
 
 IDENTIFIER = re.compile(r"[A-Za-z][A-Za-z0-9_-]*\Z")
-RESOURCE_DEFAULTS = {"skills": "workflow-skills", "workflows": "workflows"}
+RESOURCE_DEFAULTS = {"skills": "skills", "workflows": "workflows"}
 
 
 class InvocationError(ValueError):

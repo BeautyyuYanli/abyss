@@ -15,7 +15,7 @@ description: 解释并执行 Abyss workflow DSL。用于用户指定 workflow �
 
 统一资源库提供 skill 与 workflow 两类资源。引用路径是资源标识，不是文件系统位置；一次根调用中的引用资源绑定固定版本，内联内容保持为本次调用采用的定义。
 
-本 skill 随附的 workflow 位于 `workflows/`，配套 skills 位于 `workflow-skills/`。`context.resources` 默认使用本 skill 自带的资源：`workflows` 为 `workflows`，`skills` 为 `workflow-skills`。资源目录的相对路径以当前 `SKILL.md` 所在目录为基准；显式提供的绝对路径直接使用，只提供其中一项时另一项沿用默认值。解释器 `skill:abyss` 由当前 session 安装或加载的本 `SKILL.md` 提供。
+本 skill 随附的 workflow 位于 `workflows/`，配套 skills 位于 `skills/`。`context.resources` 默认使用本 skill 自带的资源：`workflows` 为 `workflows`，`skills` 为 `skills`。资源目录的相对路径以当前 `SKILL.md` 所在目录为基准；显式提供的绝对路径直接使用，只提供其中一项时另一项沿用默认值。解释器 `skill:abyss` 由当前 session 安装或加载的本 `SKILL.md` 提供。
 
 | 值的位置 | 接受的形式 | 语义 |
 | --- | --- | --- |
@@ -239,7 +239,7 @@ workflow 内联 JSON 只使用工作流定义字段，不增加独立的 `prompt
 
 | 字段 | 语义 |
 | --- | --- |
-| `resources` | 资源库目录对象，默认 `{skills: workflow-skills, workflows: workflows}`，相对于本 skill 根目录。对应 `skill:<path>` 的 `<skills>/<path>/SKILL.md` 和 `workflow:<path>` 的 `<workflows>/<path>.yaml`；可分别覆盖目录。 |
+| `resources` | 资源库目录对象，默认 `{skills: skills, workflows: workflows}`，相对于本 skill 根目录。对应 `skill:<path>` 的 `<skills>/<path>/SKILL.md` 和 `workflow:<path>` 的 `<workflows>/<path>.yaml`；可分别覆盖目录。 |
 | `parent` | 直接父 workflow 继承来源，默认 `{}`，包含已解析的 `role` 和／或已组合的有效 `instructions`。省略的父指令为空列表；定义使用 `role: ^` 时需提供 `parent.role`。 |
 | `sessions` | 显式注入当前 workflow 的绑定记录列表，默认 `[]`；每项为 `{ref: <local-name>, value: <session-id>}`，其中 `value` 是实际 Lody session ID。 |
 
