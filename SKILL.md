@@ -382,3 +382,18 @@ CLI 从调用声明中只取 `use`。也可以把 `use` 中的 `workflow:` 引�
 执行方分别落实空间和历史策略：工具中的父子关系或共享目录不自动意味着历史 fork，建立 Git worktree 也不自动意味着复制了调用者空间当前的未提交状态。若工具不能满足声明的策略或不能访问指定的已有会话，执行方必须明确能力缺口，不能静默换成其他策略或新建替代会话。
 
 跨 session 工具使用 CLI 生成的 prompt，其中保留 workflow 定义或引用、输入消息和执行上下文。目标 agent 按本 skill 读取 workflow 与 skill 引用，或使用内联定义和 prompt-only 正文。输入输出枚举及其说明作为数据契约交给执行 agent。定义与调用的边界、会话选择、逻辑父属性继承、空间与历史策略、图的激活范围和正文的传递规则不因执行工具变化而改变。
+
+## 内置工作流
+
+| 资源 | 用途 |
+| --- | --- |
+| [workflow:proposal](workflows/proposal.yaml) | 起草或修改提案，经独立复杂度审查、简化后交付。 |
+| [workflow:impl](workflows/impl.yaml) | Mei 协调一位持续复用的 Elysia 实现，五位独立 Eden 并行审查；校验报告后返工，直到五项审查通过同一快照。 |
+
+直接要求 agent 执行 `workflow:impl` 并提供实现任务或提案路径即可。该工作流需要 Git 工作区和五路并行会话能力；所有实现与审查会话共享工作目录，审查会话不复制调用者历史。实现前后快照保存在 `refs/baselines/impl/<loop-id>/`，最终报告写入 `.context/impl/YYMMDD-<slug>.md` 并完整返回。
+
+跨 session 交接时，仍由 CLI 生成 prompt，再交给目标 agent 执行，例如：
+
+```sh
+scripts/abyss.py prompt workflow:impl --input '{"value":"根据 .context/proposals/example.md 实现功能"}'
+```
