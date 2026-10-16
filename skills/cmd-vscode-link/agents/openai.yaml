@@ -1,0 +1,3 @@
+interface:
+  display_name: "VS Code 局域网链接"
+  short_description: "为当前目录生成使用本机局域网地址的可点击 VS Code 远程链接"
