@@ -2,32 +2,20 @@ role: skill:persona-mei
 input_type:
   task: "实现任务及必要背景的自然语言文本；提案或文档作为输入时提供文件位置。"
 output_type:
-  done: "全部五项审查通过同一最终快照后的完整实现报告。"
+  done: "全部五项审查在同一轮通过当前实现后的完整报告。"
 instructions:
   - skill:impl-loop
 graph:
   nodes:
-    before:
-      use: {
-        "role": "^",
-        "input_type": {
-          "task": "首次实现任务、约束及材料位置。",
-          "rework": "原任务、循环状态及校验后合并的待修复问题。"
-        },
-        "output_type": {
-          "done": "实现交接，包含任务、约束、轮次、状态目录、固定基线、before_N 引用及对象 ID，以及本轮接受的修复范围。"
-        },
-        "run": "skill:impl-snapshot"
-      }
-      in: current
     implement:
       use: {
         "role": "skill:persona-elysia",
         "input_type": {
-          "task": "任务及材料位置、约束、轮次、状态目录、基线、before_N 和已接受的修复范围。"
+          "task": "首次实现任务、约束及材料位置。",
+          "rework": "原任务、循环状态及校验后合并的待修复问题和修复范围。"
         },
         "output_type": {
-          "done": "保留循环状态的实现交接，附变更说明、检查结果、任务差异及超出修复范围的必要改动。"
+          "done": "共用审查交接，包含任务、约束、工作区、循环标识、轮次、状态目录、实现工件、改动说明及检查结果。"
         },
         "run": "skill:impl-implement"
       }
@@ -35,23 +23,11 @@ graph:
         new:
           workspace: ^
           history: none
-    after:
-      use: {
-        "role": "^",
-        "input_type": {
-          "implementation": "Elysia 完成实现后的循环状态、改动说明及检查结果。"
-        },
-        "output_type": {
-          "done": "各审查分支共用的任务、约束、轮次、状态目录、快照引用及对象 ID、完整与本轮 diff 和检查结果。"
-        },
-        "run": "skill:impl-snapshot"
-      }
-      in: current
     code-hygiene:
       use: {
         "role": "skill:persona-eden",
-        "input_type": {"review": "共用审查交接及本人反馈目录，包含任务、当前轮次、快照、两份 diff 和检查结果。"},
-        "output_type": {"done": "本方面的审查报告，包含轮次、after_N 对象 ID、PASS 或 FAILED、按优先级排列的问题及证据。"},
+        "input_type": {"review": "共用审查交接及本人反馈目录，包含任务、循环标识、当前轮次、实现工件和检查结果。"},
+        "output_type": {"done": "本方面的审查报告，包含循环标识、轮次、PASS 或 FAILED、按优先级排列的问题及证据。"},
         "instructions": ["The fixed aspect identifier is code-hygiene. Review code and logic hygiene only. Prefer deletion and simplification. Identify dead paths, duplication, unnecessary abstractions, code smells, and custom code duplicating functionality in the codebase, current dependencies, or a well-established and actively maintained library."],
         "run": "skill:impl-review"
       }
@@ -62,8 +38,8 @@ graph:
     correctness:
       use: {
         "role": "skill:persona-eden",
-        "input_type": {"review": "共用审查交接及本人反馈目录，包含任务、当前轮次、快照、两份 diff 和检查结果。"},
-        "output_type": {"done": "本方面的审查报告，包含轮次、after_N 对象 ID、PASS 或 FAILED、按优先级排列的问题及证据。"},
+        "input_type": {"review": "共用审查交接及本人反馈目录，包含任务、循环标识、当前轮次、实现工件和检查结果。"},
+        "output_type": {"done": "本方面的审查报告，包含循环标识、轮次、PASS 或 FAILED、按优先级排列的问题及证据。"},
         "instructions": ["The fixed aspect identifier is correctness. Review correctness and task completion only: whether the implementation behaves correctly and fully satisfies the task, proposal, or document."],
         "run": "skill:impl-review"
       }
@@ -74,8 +50,8 @@ graph:
     test-hygiene:
       use: {
         "role": "skill:persona-eden",
-        "input_type": {"review": "共用审查交接及本人反馈目录，包含任务、当前轮次、快照、两份 diff 和检查结果。"},
-        "output_type": {"done": "本方面的审查报告，包含轮次、after_N 对象 ID、PASS 或 FAILED、按优先级排列的问题及证据。"},
+        "input_type": {"review": "共用审查交接及本人反馈目录，包含任务、循环标识、当前轮次、实现工件和检查结果。"},
+        "output_type": {"done": "本方面的审查报告，包含循环标识、轮次、PASS 或 FAILED、按优先级排列的问题及证据。"},
         "instructions": ["The fixed aspect identifier is test-hygiene. Review test hygiene only. Prefer deleting redundant, meaningless, or misleading tests, especially new tests. Identify meaningless negative checks such as 'something does not exist' and tests exhibiting the Texas sharpshooter fallacy. Recommend removal before adding or restructuring tests."],
         "run": "skill:impl-review"
       }
@@ -86,8 +62,8 @@ graph:
     test-adequacy:
       use: {
         "role": "skill:persona-eden",
-        "input_type": {"review": "共用审查交接及本人反馈目录，包含任务、当前轮次、快照、两份 diff 和检查结果。"},
-        "output_type": {"done": "本方面的审查报告，包含轮次、after_N 对象 ID、PASS 或 FAILED、按优先级排列的问题及证据。"},
+        "input_type": {"review": "共用审查交接及本人反馈目录，包含任务、循环标识、当前轮次、实现工件和检查结果。"},
+        "output_type": {"done": "本方面的审查报告，包含循环标识、轮次、PASS 或 FAILED、按优先级排列的问题及证据。"},
         "instructions": ["The fixed aspect identifier is test-adequacy. Review test adequacy only: whether meaningful tests sufficiently verify the task's behavior and relevant regressions."],
         "run": "skill:impl-review"
       }
@@ -98,8 +74,8 @@ graph:
     documentation:
       use: {
         "role": "skill:persona-eden",
-        "input_type": {"review": "共用审查交接及本人反馈目录，包含任务、当前轮次、快照、两份 diff 和检查结果。"},
-        "output_type": {"done": "本方面的审查报告，包含轮次、after_N 对象 ID、PASS 或 FAILED、按优先级排列的问题及证据。"},
+        "input_type": {"review": "共用审查交接及本人反馈目录，包含任务、循环标识、当前轮次、实现工件和检查结果。"},
+        "output_type": {"done": "本方面的审查报告，包含循环标识、轮次、PASS 或 FAILED、按优先级排列的问题及证据。"},
         "instructions": ["The fixed aspect identifier is documentation. Review implementation documentation only: the sufficiency of notes, docstrings, comments, and documentation. Treat the proposal as implementation input; do not edit it or request changes to it as documentation."],
         "run": "skill:impl-review"
       }
@@ -114,9 +90,9 @@ graph:
           "reports": "原始共用审查交接和本次五个分支的完整报告，按节点标识排列。"
         },
         "output_type": {
-          "clarify": "同一轮同一快照的共用审查交接；各方面的校验反馈已分别保存，不含其他方面的报告或意见。",
+          "clarify": "同一轮当前实现的共用审查交接；各方面的校验反馈已分别保存，不含其他方面的报告或意见。",
           "rework": "保留任务、约束及循环状态，附去重并解决冲突后的已接受问题和修复范围。",
-          "passed": "最终任务、循环状态、全部快照、检查结果，以及同一 after_N 的五份已校验 PASS 报告。"
+          "passed": "最终任务、循环状态、实现说明、检查结果，以及同一轮当前实现的五份已校验 PASS 报告。"
         },
         "run": "skill:impl-validate"
       }
@@ -125,7 +101,7 @@ graph:
       use: {
         "role": "^",
         "input_type": {
-          "result": "最终任务、循环状态、全部快照、检查结果和同一 after_N 的五份已校验 PASS 报告。"
+          "result": "最终任务、循环状态、实现说明、检查结果和同一轮当前实现的五份已校验 PASS 报告。"
         },
         "output_type": {
           "done": "已写入 .context/impl/YYMMDD-<slug>.md 的完整实现报告正文。"
@@ -134,11 +110,9 @@ graph:
       }
       in: current
   edges:
-    - start.task -> before.task
-    - before.done -> implement.task
-    - implement.done -> after.implementation
-    - after.done -> [code-hygiene.review, correctness.review, test-hygiene.review, test-adequacy.review, documentation.review] -> validate.reports
+    - start.task -> implement.task
+    - implement.done -> [code-hygiene.review, correctness.review, test-hygiene.review, test-adequacy.review, documentation.review] -> validate.reports
     - validate.clarify -> [code-hygiene.review, correctness.review, test-hygiene.review, test-adequacy.review, documentation.review] -> validate.reports
-    - validate.rework -> before.rework
+    - validate.rework -> implement.rework
     - validate.passed -> publish.result
     - publish.done -> end.done

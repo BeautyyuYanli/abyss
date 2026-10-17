@@ -152,7 +152,7 @@ def validate_context(value: Any) -> dict[str, Any]:
         binding = mapping(binding, "context.sessions binding")
         fields(binding, {"ref", "value"}, "context.sessions binding")
         alias = identifier(binding.get("ref"), "context.sessions.ref")
-        text(binding.get("value"), "context.sessions.value (Lody session ID)")
+        text(binding.get("value"), "context.sessions.value (session ID)")
         if alias in aliases:
             raise InvocationError(f"duplicate context.sessions ref: {alias}")
         aliases.add(alias)

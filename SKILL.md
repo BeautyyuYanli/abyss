@@ -122,11 +122,11 @@ DSL 区分以下对象：
 
 | 字段 | 语义和默认值 |
 | --- | --- |
-| `as` | 可选；将新会话的实际 ID 绑定到一个运行内引用名，供其他调用通过 `ref` 复用；使用 Lody 时即为 Lody session ID。 |
+| `as` | 可选；将新会话的实际 ID 绑定到一个运行内引用名，供其他调用通过 `ref` 复用。 |
 | `workspace` | 新会话的空间来源：`^`、`fork` 或 `none`，默认 `^`。 |
 | `history` | 新会话的初始历史来源：`fork` 或 `none`，默认 `none`。 |
 
-`in.new.as` 将创建成功后取得的实际会话 ID 注册到该引用名：使用 Lody 时，绑定的值必须是新建会话的 Lody session ID。注册发生在发起调用的 workflow 局部命名空间，根调用则注册在宿主为本次根运行建立的外层作用域。同一命名空间内不能重复声明或改绑同一个引用名，也不能覆盖 `sessions` 注入的引用。循环中再次激活同一创建位置时继续使用原绑定，不视为重复声明。
+`in.new.as` 将创建成功后取得的实际会话 ID 注册到该引用名。注册发生在发起调用的 workflow 局部命名空间，根调用则注册在宿主为本次根运行建立的外层作用域。同一命名空间内不能重复声明或改绑同一个引用名，也不能覆盖 `sessions` 注入的引用。循环中再次激活同一创建位置时继续使用原绑定，不视为重复声明。
 
 `as` 不是显示名字，也不是宿主会话 ID；只有对应创建调用首次激活成功后，引用才可使用。未写 `as` 的新会话仍由执行方按调用位置保存，只是不提供给其他位置引用。
 
@@ -138,7 +138,7 @@ DSL 区分以下对象：
 
 被调用 workflow 的命名空间默认没有外部会话引用。跨调用边界通过调用侧的 `sessions` 显式注入：键定义被调用方内部使用的名字，值选择调用方的当前会话或已有引用。值中的 `current` 与 `ref` 都在进入被调用 workflow 前，按调用方的会话和命名空间解析；得到的实际会话绑定以局部名字传入，随该调用位置跨循环保留。映射值不能使用 `new`，创建会话仍由明确的调用位置负责。
 
-传给 CLI 的 `context.sessions` 是绑定记录列表，每项为 `{ref: <local-name>, value: <session-id>}`。`ref` 是被调用 workflow 内可用的局部引用名，`value` 是调用方解析得到的实际 Lody session ID。调用侧的 `sessions` 保持名字到选择器的声明形式；宿主负责完成解析，再把这些最终绑定交给 CLI。
+传给 CLI 的 `context.sessions` 是绑定记录列表，每项为 `{ref: <local-name>, value: <session-id>}`。`ref` 是被调用 workflow 内可用的局部引用名，`value` 是调用方解析得到的实际会话 ID。调用侧的 `sessions` 保持名字到选择器的声明形式；宿主负责完成解析，再把这些最终绑定交给 CLI。
 
 未显式传入的父引用对子调用不可见，父调用和兄弟调用也不能读取子调用内部创建的局部引用。调用返回不会自动导出命名空间。不同命名空间可以使用相同引用名；传入相同的实际会话只共享该会话，不合并两边的名字。此规则与 `role: ^`、指令继承、`in: current` 和空间共享各自独立。
 
@@ -158,7 +158,7 @@ DSL 区分以下对象：
 
 ### 空间与历史
 
-`in.new.workspace` 和 `in.new.history` 相互独立，分别回答新会话在哪里工作、从什么会话历史开始。发起调用的会话具有空间时，可以组合以下任意一组：
+`in.new.workspace` 和 `in.new.history` 相互独立，分别回答新会话在哪里工作、从什么会话历史开始。发起调用的会话具有空间时，各组合的 DSL 语义如下；宿主是否支持这些组合由 adapter 说明。
 
 | `workspace` | `history` | 创建结果 |
 | --- | --- | --- |
@@ -241,7 +241,7 @@ workflow 内联 JSON 只使用工作流定义字段，不增加独立的 `prompt
 | --- | --- |
 | `resources` | 资源库目录对象，默认 `{skills: skills, workflows: workflows}`，相对于本 skill 根目录。对应 `skill:<path>` 的 `<skills>/<path>/SKILL.md` 和 `workflow:<path>` 的 `<workflows>/<path>.yaml`；可分别覆盖目录。 |
 | `parent` | 直接父 workflow 继承来源，默认 `{}`，包含已解析的 `role` 和／或已组合的有效 `instructions`。省略的父指令为空列表；定义使用 `role: ^` 时需提供 `parent.role`。 |
-| `sessions` | 显式注入当前 workflow 的绑定记录列表，默认 `[]`；每项为 `{ref: <local-name>, value: <session-id>}`，其中 `value` 是实际 Lody session ID。 |
+| `sessions` | 显式注入当前 workflow 的绑定记录列表，默认 `[]`；每项为 `{ref: <local-name>, value: <session-id>}`，其中 `value` 是实际会话 ID。 |
 
 整个 `input` 或 `context` 省略时，也按上述规则补齐。执行请求中的其它可选内容按字段形状使用空值：正文为 `""`，父上下文为 `{}`，指令和会话绑定为 `[]`。显式提供的正文仍按文本化规则处理，因此 `value: null` 会成为文本 `null`。workflow 定义的必填接口和显式继承所需的父角色仍按各自规则校验。
 
@@ -257,7 +257,7 @@ workflow 内联 JSON 只使用工作流定义字段，不增加独立的 `prompt
 
 - 当前运行的 workflow、执行位置和同步调用栈，以及下一步需要处理的工作。
 - 按运行与 workflow 调用位置区分的会话引用和实际 session ID。包括显式导入、`new.as` 注册的引用，以及未声明 `as` 的 `new` 调用位置绑定，以便循环时复用。
-- 尚未完成的跨 session 调用及其 `operationId`、目标实际 session ID、对应调用位置与本次激活；并行汇合仍需要的分支结果也保留在笔记中。新建 session 尚未返回 ID 时记为待绑定。
+- 尚未完成的跨 session 调用及其操作标识、目标实际 session ID、对应调用位置与本次激活；并行汇合仍需要的分支结果也保留在笔记中。新建 session 尚未返回 ID 时记为待绑定。
 
 这些内容使用 Markdown 记录即可。同一 session 内的不同调用仍遵守各自的引用作用域；保存于同一文件不合并命名空间。
 
@@ -297,13 +297,13 @@ workflow 内联 JSON 只使用工作流定义字段，不增加独立的 `prompt
 
 按需为本次跨 session 调用准备输入与 context 的临时文件。根据当前 skill 的实际安装位置，取得 [scripts/abyss.py](scripts/abyss.py) 的绝对路径，运行 `<script-path> prompt <workflow> --input-file <input-file> --context <context-file>`。`workflow` 可直接使用引用；内联定义或调用声明可写入临时文件后传入。需要保存 prompt 时，使用 `--output <prompt-file>`。
 
-脚本带可执行入口和 PEP 723 内联依赖声明，由 uv 提供 Python 与依赖；可从任意工作目录直接执行，也可显式运行 `uv run --no-project --script <script-path> prompt ...`。安装或复制本 skill 时保留 `scripts/abyss.py`。临时文件路径及提供给目标 session 的资源目录按各自实际位置填写。
+脚本带可执行入口和 PEP 723 内联依赖声明，由 uv 提供 Python 与依赖；可从任意工作目录直接执行，也可显式运行 `uv run --no-project --script <script-path> prompt ...`。安装或复制本 skill 时保留 `scripts/abyss.py` 和 `adapters/`。临时文件路径及提供给目标 session 的资源目录按各自实际位置填写。
 
 CLI 从调用声明中只取 `use`。也可以把 `use` 中的 `workflow:` 引用直接作为首参，或将内联 workflow 对象写入定义文件作为首参。传入的 skill 引用、workflow 引用和 inline workflow 都保留原值，CLI 不展开其内容。根调用的角色和图节点的角色继承，均由目标 agent 根据定义与 `context.parent` 解释。
 
 选中 `workflow:` 引用且输入未提供 `type` 时，CLI 只读取所选 workflow 的定义来取得第一个输入枚举，不递归读取其子 workflow 或 skill，输出仍保留原引用。相对的资源目录按 CLI 脚本所属的 skill 根目录定位；目标 session 按其所加载的本 skill 解释这些相对目录。显式提供 `type` 时，CLI 无需读取引用资源。
 
-将 CLI 生成文件中的完整 prompt 原样交给目标 session；未指定输出文件时，使用标准输出。传递给其他 session 的消息正文仅包含 CLI 生成的文本，不追加任何解释、说明或额外指令。对于 Lody，新建时可作为 `lody_session_create` 的 `prompt`；已有或复用的 session 使用 `lody_session_chat`，其中 `sessionId` 填解析得到的实际 ID，`prompt` 原样填入 CLI 输出。若 CLI 生成失败，先处理错误，再派发本次调用。
+将 CLI 生成文件中的完整 prompt 原样交给目标 session；未指定输出文件时，使用标准输出。传递给其他 session 的消息正文仅包含 CLI 生成的文本，不追加任何解释、说明或额外指令。若 CLI 生成失败，先处理错误，再派发本次调用。
 
 目标 session 的实际 ID 由执行方用于投递，不需要加入 prompt 的 context。`context.sessions` 只包含显式导入给被调用 workflow 使用的会话引用；`in.new.as` 注册的名字属于调用方，不自动成为被调用方的局部引用。
 
@@ -327,7 +327,7 @@ CLI 从调用声明中只取 `use`。也可以把 `use` 中的 `workflow:` 引�
 
 承载 session 的 agent 加载角色和有效指令，叶子定义按 `run` 完成动作，复合定义从匹配的 `start.<enum>` 端口推进子图，并按相同规则执行其中的 `use` 调用。
 
-等待本次调用返回已声明的输出枚举和正文，核对其与接口及后继输入的语义相容，再沿匹配的连边推进。跨 session 投递成功的确认或异步 `operationId` 仅表明请求已接收，不能作为 workflow 输出；依据工具的完成通知接收结果。并行组按会话约束派发并等待汇合。
+等待本次调用返回已声明的输出枚举和正文，核对其与接口及后继输入的语义相容，再沿匹配的连边推进。跨 session 投递成功的确认或异步操作标识仅表明请求已接收，不能作为 workflow 输出；依据工具的完成通知接收结果。并行组按会话约束派发并等待汇合。
 
 到达 `end.<enum>` 时，返回该枚举和结果正文。本地调用把结果交回同一调用栈；跨 session 调用通过对应执行工具的结果交接返回。收到用户请求的 agent 最终交付根调用结果。
 
@@ -369,17 +369,17 @@ CLI 从调用声明中只取 `use`。也可以把 `use` 中的 `workflow:` 引�
 
 重新进入复合节点后，汇合结果必须全部来自本次激活，旧输出不参与当前汇合。会话可以复用，结果按激活隔离。
 
-循环需要的轮次、基线、当前快照和反馈都在交接文本中明确说明，再沿边传递。没有隐式重试，也没有默认最大轮次；退出或继续由明确的结果端口决定。等待用户提供缺失决定属于 skill 的暂停状态，不应通过循环产生虚假的新工作轮次。
+循环需要的任务背景、轮次和反馈都在交接文本中明确说明，再沿边传递。没有隐式重试，也没有默认最大轮次；退出或继续由明确的结果端口决定。等待用户提供缺失决定属于 skill 的暂停状态，不应通过循环产生虚假的新工作轮次。
 
 ## DSL 与执行工具的边界
 
 工作流定义负责声明结构和内在约束，调用负责绑定会话与输入，skill 负责解释和行动。DSL 不选择模型、不包含工具调用参数，也不把节点标识或会话引用名解释为宿主会话 ID。
 
-`current` 使用当前会话中的调用栈，不调用会话创建工具。`new` 可以由本机 subagent 工具或独立 Lody 会话承载；`ref` 通过运行内绑定定位并继续实际的已有会话。执行方同时保存调用位置、调用激活和实际会话的对应关系，不能只按会话的最后一条回复配对结果。
+session 的实际能力与工具映射放在 [adapters/](adapters/) 中。执行 session 操作前，根据当前宿主读取 `adapters/<宿主>.md`，核对会话创建与复用、工作空间、历史和并行能力；支持范围与调用方式以对应 adapter 和执行时工具的当前描述为准。
 
-若采用 Lody，创建会话可使用 `lody_session_create` 或 `lody_session_create_many`，继续已有会话可使用 `lody_session_chat` 或 `lody_session_chat_many`。创建完成后，将结果中的实际 session ID 绑定到 `in.new.as` 指定的引用名；异步操作的 `operationId` 不能作为 session ID。之后通过 `ref` 解析到绑定记录的 `value`，用它作为工具的 `sessionId` 参数。具体调用、工作状态和完成通知依据工具的当前契约处理，提交成功的确认不等于 workflow 已经返回结果。
+`current` 使用当前会话中的调用栈，不调用会话创建工具。`new` 通过 adapter 创建独立会话；`ref` 通过运行内绑定定位并继续实际的已有会话。执行方同时保存调用位置、调用激活和实际会话的对应关系，不能只按会话的最后一条回复配对结果。
 
-执行方分别落实空间和历史策略：工具中的父子关系或共享目录不自动意味着历史 fork，建立 Git worktree 也不自动意味着复制了调用者空间当前的未提交状态。若工具不能满足声明的策略或不能访问指定的已有会话，执行方必须明确能力缺口，不能静默换成其他策略或新建替代会话。
+执行方分别落实空间和历史策略：共享空间不自动意味着复制历史，独立空间的创建也不自动保证保留了调用者当前的文件状态。若工具不能满足声明的策略或不能访问指定的已有会话，执行方必须明确报告不支持，不能静默换成其他策略或新建替代会话。
 
 跨 session 工具使用 CLI 生成的 prompt，其中保留 workflow 定义或引用、输入消息和执行上下文。目标 agent 按本 skill 读取 workflow 与 skill 引用，或使用内联定义和 prompt-only 正文。输入输出枚举及其说明作为数据契约交给执行 agent。定义与调用的边界、会话选择、逻辑父属性继承、空间与历史策略、图的激活范围和正文的传递规则不因执行工具变化而改变。
 
@@ -388,9 +388,9 @@ CLI 从调用声明中只取 `use`。也可以把 `use` 中的 `workflow:` 引�
 | 资源 | 用途 |
 | --- | --- |
 | [workflow:proposal](workflows/proposal.yaml) | 起草或修改提案，经独立复杂度审查、简化后交付。 |
-| [workflow:impl](workflows/impl.yaml) | Mei 协调一位持续复用的 Elysia 实现，五位独立 Eden 并行审查；校验报告后返工，直到五项审查通过同一快照。 |
+| [workflow:impl](workflows/impl.yaml) | Mei 协调一位持续复用的 Elysia 实现，五位独立 Eden 并行审查；校验报告后返工，直到五项审查在同一轮通过当前实现。 |
 
-直接要求 agent 执行 `workflow:impl` 并提供实现任务或提案路径即可。该工作流需要 Git 工作区和五路并行会话能力；所有实现与审查会话共享工作目录，审查会话不复制调用者历史。实现前后快照保存在 `refs/baselines/impl/<loop-id>/`，最终报告写入 `.context/impl/YYMMDD-<slug>.md` 并完整返回。
+直接要求 agent 执行 `workflow:impl` 并提供实现任务或提案路径即可。该工作流需要工作区和五路并行会话能力；所有实现与审查会话共享工作目录，审查会话不复制调用者历史。最终报告写入 `.context/impl/YYMMDD-<slug>.md` 并完整返回。
 
 跨 session 交接时，仍由 CLI 生成 prompt，再交给目标 agent 执行，例如：
 
