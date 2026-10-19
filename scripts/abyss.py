@@ -3,11 +3,11 @@
 # requires-python = ">=3.11"
 # dependencies = ["PyYAML>=6.0.3,<7"]
 # ///
-"""Render a workflow prompt as this skill's standalone uv script.
+"""Render an Abyss execution prompt as this skill's standalone uv script.
 
 The calling agent owns graph execution, session creation, namespace bindings and
 temporary state. This script validates input and callee context, preserves
-workflow values and references skill:abyss. A referenced workflow is read only
+workflow/action values and references skill:abyss. A referenced workflow is read only
 when its interface is needed to default an omitted input type; resource contents
 are not expanded into the prompt. Relative resource paths use the skill root.
 It can be copied and executed from any working directory; uv provides the
@@ -91,8 +91,124 @@ def skills(value: Any, label: str) -> list[str]:
     return value
 
 
-def validate_definition(value: Any) -> dict[str, Any] | None:
-    """Check the selected interface only; descendants remain opaque values."""
+def ports(value: Any, label: str) -> dict[str, str]:
+    """Validate an explicit, nonempty enum-to-description interface."""
+    value = mapping(value, label)
+    if not value:
+        raise InvocationError(f"{label} must have at least one enum")
+    for port, description in value.items():
+        identifier(port, label)
+        text(description, f"{label}.{port}")
+    return value
+
+
+def validate_action(value: Any) -> dict[str, Any]:
+    """Omitted interfaces are anonymous; explicit interfaces must be nonempty."""
+    action = mapping(value, "run action")
+    fields(action, {"run", "input_type", "output_type", "instructions"}, "run action")
+    skills([action.get("run")], "run action.run")
+    for direction in ("input_type", "output_type"):
+        if direction in action:
+            ports(action[direction], f"run action.{direction}")
+    skills(action.get("instructions", []), "run action.instructions")
+    return action
+
+
+def validate_use(value: Any) -> dict[str, Any]:
+    """Check a workflow call's declared selector, not its runtime bindings."""
+    call = mapping(value, "use call")
+    fields(call, {"use", "in", "sessions"}, "use call")
+    selector = mapping(call.get("in"), "use call.in")
+    if set(selector) == {"ref"}:
+        identifier(selector["ref"], "use call.in.ref")
+    elif set(selector) == {"new"}:
+        config = mapping(selector["new"], "use call.in.new")
+        fields(config, {"as", "workspace", "history"}, "use call.in.new")
+        if "as" in config:
+            identifier(config["as"], "use call.in.new.as")
+        if config.get("workspace", "^") not in ("^", "fork", "none"):
+            raise InvocationError("use call.in.new.workspace must be ^, fork or none")
+        if config.get("history", "none") not in ("fork", "none"):
+            raise InvocationError("use call.in.new.history must be fork or none")
+    else:
+        raise InvocationError("use call.in must contain exactly one of ref or new")
+    sessions = mapping(call.get("sessions", {}), "use call.sessions")
+    for alias, binding in sessions.items():
+        identifier(alias, "use call.sessions alias")
+        if binding == "current":
+            continue
+        binding = mapping(binding, "use call.sessions binding")
+        fields(binding, {"ref"}, "use call.sessions binding")
+        identifier(binding.get("ref"), "use call.sessions binding.ref")
+    validate_workflow(call.get("use"))
+    return call
+
+
+def validate_endpoint(
+    value: str, direction: str, definition: dict[str, Any]
+) -> tuple[str, str | None]:
+    """Check visible ports; referenced workflow interfaces are resolved by the host.
+
+    Anonymous interfaces use None internally. Named inputs may omit their label
+    to select the first declaration; named outputs and start/end require labels.
+    """
+    parts = value.split(".")
+    if len(parts) not in (1, 2):
+        raise InvocationError(f"invalid edge endpoint: {value}")
+    name = identifier(parts[0], "edge node")
+    port = identifier(parts[1], "edge port") if len(parts) == 2 else None
+    if name == "start" and direction == "output":
+        interface = definition["input_type"]
+    elif name == "end" and direction == "input":
+        interface = definition["output_type"]
+    else:
+        nodes = definition["graph"]["nodes"]
+        if name not in nodes:
+            raise InvocationError(f"unknown or misplaced edge node: {name}")
+        node = nodes[name]
+        if "run" in node:
+            interface = node.get(f"{direction}_type")
+        elif isinstance(node["use"], str):
+            if direction == "output" and port is None:
+                raise InvocationError(f"workflow output requires a port: {value}")
+            return name, port
+        else:
+            interface = node["use"][f"{direction}_type"]
+    if interface is None:
+        if port is not None:
+            raise InvocationError(f"anonymous {direction} cannot name a port: {value}")
+    elif port is None:
+        if direction == "output" or name == "end":
+            raise InvocationError(f"named interface requires a port: {value}")
+    elif port not in interface:
+        raise InvocationError(f"unknown {direction} port: {value}")
+    return name, port
+
+
+def validate_edges(definition: dict[str, Any]) -> None:
+    """Validate sequential and fork/join edges without expanding resource refs."""
+    sources = set()
+    for edge in definition["graph"]["edges"]:
+        segments = [part.strip() for part in edge.split("->")]
+        if len(segments) not in (2, 3):
+            raise InvocationError(f"invalid edge: {edge}")
+        source = validate_endpoint(segments[0], "output", definition)
+        if source in sources:
+            raise InvocationError(f"duplicate outgoing edge: {segments[0]}")
+        sources.add(source)
+        if len(segments) == 3:
+            group = segments[1]
+            if not (group.startswith("[") and group.endswith("]")):
+                raise InvocationError(f"parallel edge requires a branch group: {edge}")
+            for branch in group[1:-1].split(","):
+                name, _ = validate_endpoint(branch.strip(), "input", definition)
+                if name == "end":
+                    raise InvocationError("parallel branches must be execution nodes")
+        validate_endpoint(segments[-1], "input", definition)
+
+
+def validate_workflow(value: Any) -> dict[str, Any] | None:
+    """Check workflow graphs and inline nodes; resource references stay opaque."""
     if isinstance(value, str):
         if not value.startswith("workflow:") or not value.removeprefix("workflow:"):
             raise InvocationError("use must be a workflow: reference or an object")
@@ -100,29 +216,29 @@ def validate_definition(value: Any) -> dict[str, Any] | None:
     definition = mapping(value, "workflow")
     fields(
         definition,
-        {"role", "input_type", "output_type", "instructions", "run", "graph"},
+        {"role", "input_type", "output_type", "instructions", "graph"},
         "workflow",
     )
     skills([definition.get("role")], "workflow.role")
     for direction in ("input_type", "output_type"):
-        ports = mapping(definition.get(direction), direction)
-        if not ports:
-            raise InvocationError(f"{direction} must have at least one enum")
-        for port, description in ports.items():
-            identifier(port, direction)
-            text(description, f"{direction}.{port}")
+        ports(definition.get(direction), f"workflow.{direction}")
     skills(definition.get("instructions", []), "workflow.instructions")
-    if ("run" in definition) == ("graph" in definition):
-        raise InvocationError("workflow must contain exactly one of run or graph")
-    if "run" in definition:
-        skills([definition["run"]], "workflow.run")
-    else:
-        graph = mapping(definition["graph"], "graph")
-        fields(graph, {"nodes", "edges"}, "graph")
-        mapping(graph.get("nodes"), "graph.nodes")
-        edges = graph.get("edges")
-        if not isinstance(edges, list) or not all(isinstance(e, str) for e in edges):
-            raise InvocationError("graph.edges must be a list of edge strings")
+    graph = mapping(definition.get("graph"), "graph")
+    fields(graph, {"nodes", "edges"}, "graph")
+    nodes = mapping(graph.get("nodes"), "graph.nodes")
+    for name, node in nodes.items():
+        identifier(name, "graph node")
+        if name in ("start", "end"):
+            raise InvocationError(f"reserved graph node: {name}")
+        node = mapping(node, f"graph.nodes.{name}")
+        if "run" in node:
+            validate_action(node)
+        else:
+            validate_use(node)
+    edges = graph.get("edges")
+    if not isinstance(edges, list) or not all(isinstance(e, str) for e in edges):
+        raise InvocationError("graph.edges must be a list of edge strings")
+    validate_edges(definition)
     return definition
 
 
@@ -164,23 +280,32 @@ def prepare_invocation(
     input_message: Any = None,
     context: Any = None,
 ) -> dict[str, Any]:
-    """Prepare workflow, input and callee context for an already bound call.
+    """Prepare a workflow handoff or local action preview, preserving declarations.
 
-    ``workflow`` accepts a definition, an opaque workflow: reference or a call
-    object. For a call object, the host has handled in/sessions bindings;
-    only its use value is needed here. Input bodies are text; non-string JSON
-    values are serialized as text, with enum tags kept as routing metadata.
+    ``workflow`` accepts a workflow definition/reference, a use call or a local
+    run action. A use call must declare ref/new; the host resolves its bindings,
+    so only its use value goes to the callee. A run action stays local and has
+    one anonymous port per omitted interface, represented internally by None.
+    Anonymous input envelopes omit type; null and placeholder names are invalid.
+    Non-string JSON
+    input bodies are serialized as text, with enum tags kept as routing metadata.
     Omitted input uses the first declared input enum and an empty text body.
     For opaque references, only this default requires reading the definition.
     The original workflow, input and context are never mutated. Inheritance is
     interpreted by the receiving session from the definition and context.parent.
     """
-    if isinstance(workflow, dict) and "use" in workflow:
-        call = workflow
+    if isinstance(workflow, dict) and "run" in workflow:
+        selected = workflow
+        definition = validate_action(selected)
+        input_ports = definition.get("input_type")
     else:
-        call = {"use": workflow}
-    fields(call, {"use", "in", "sessions"}, "call")
-    definition = validate_definition(call["use"])
+        selected = (
+            validate_use(workflow)["use"]
+            if isinstance(workflow, dict) and "use" in workflow
+            else workflow
+        )
+        definition = validate_workflow(selected)
+        input_ports = definition["input_type"] if definition is not None else None
     context = validate_context(context)
 
     message = {} if input_message is None else mapping(input_message, "input message")
@@ -190,13 +315,14 @@ def prepare_invocation(
             directory = Path(context["resources"]["workflows"])
             if not directory.is_absolute():
                 directory = Path(__file__).resolve().parents[1] / directory
-            path = directory / f"{call['use'].removeprefix('workflow:')}.yaml"
-            definition = validate_definition(
+            path = directory / f"{selected.removeprefix('workflow:')}.yaml"
+            definition = validate_workflow(
                 parse_document(path.read_text(encoding="utf-8"))
             )
             if definition is None:
                 raise InvocationError("referenced workflow must contain a definition")
-        input_type = next(iter(definition["input_type"]))
+            input_ports = definition["input_type"]
+        input_type = next(iter(input_ports)) if input_ports is not None else None
     else:
         input_type = identifier(message["type"], "input.type")
     value = message.get("value", "")
@@ -204,23 +330,28 @@ def prepare_invocation(
         value = json.dumps(value, ensure_ascii=False, allow_nan=False)
 
     if definition is not None:
-        if input_type not in definition["input_type"]:
-            raise InvocationError(f"unknown workflow input enum: {input_type}")
-        if definition["role"] == "^" and "role" not in context.get("parent", {}):
+        if input_ports is None and input_type is not None:
+            raise InvocationError("anonymous input must omit type")
+        if input_ports is not None and input_type not in input_ports:
+            raise InvocationError(f"unknown input enum: {input_type}")
+        if definition.get("role") == "^" and "role" not in context.get("parent", {}):
             raise InvocationError("role: ^ requires context.parent.role")
+    message = {"value": value}
+    if input_type is not None:
+        message["type"] = input_type
     return {
-        "workflow": call["use"],
-        "input": {"type": input_type, "value": value},
+        "workflow": selected,
+        "input": message,
         "context": context,
     }
 
 
 def render_prompt(workflow: Any, input_message: Any = None, context: Any = None) -> str:
-    """Reference skill:abyss and serialize the workflow, input and context."""
+    """Serialize workflow/action, input and context without expanding resources."""
     invocation = prepare_invocation(workflow, input_message, context)
     payload = json.dumps(invocation, ensure_ascii=False, indent=2, allow_nan=False)
     return (
-        "请读取并遵循 skill:abyss，使用以下 workflow、input 和 context 执行本次工作。\n\n"
+        "请读取并遵循 skill:abyss，使用以下 workflow、input 和 context 执行本次工作；workflow 为 run 声明时在当前会话执行动作。\n\n"
         "```json\n" + payload + "\n```\n"
     )
 
@@ -235,9 +366,12 @@ def read_document(path: str):
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(prog="abyss")
     commands = parser.add_subparsers(dest="command", required=True)
-    prompt = commands.add_parser("prompt", help="render one bound workflow invocation")
+    prompt = commands.add_parser(
+        "prompt", help="render a workflow handoff or local action"
+    )
     prompt.add_argument(
-        "workflow", help="YAML/JSON definition or call file, workflow: ref, or -"
+        "workflow",
+        help="YAML/JSON workflow, use call or run action, workflow: ref, or -",
     )
     inputs = prompt.add_mutually_exclusive_group()
     inputs.add_argument(

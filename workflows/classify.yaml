@@ -1,0 +1,23 @@
+role: skill:persona-mei
+input_type:
+  task: "一项待分类工作及必要背景，包括核心目标、现有证据、实际影响范围和可恢复性。"
+output_type:
+  p0: "P0 分类交接：任务、证据、实际影响及可恢复性，和立即处理的取舍依据。"
+  p1: "P1 分类交接：任务、证据、实际影响及可恢复性，和优先解决的取舍依据。"
+  p2: "P2 分类交接：任务、证据及局部或次要影响，和低优先级核实、合并处理或延后的取舍依据。"
+  p3: "P3 分类交接：任务及装饰、排版等微小影响，和通常不处理的取舍依据。"
+graph:
+  nodes:
+    classify:
+      run: skill:classify-priority
+      output_type:
+        p0: "立即处理的分类交接。"
+        p1: "优先解决的分类交接。"
+        p2: "低优先级核实、合并处理或延后的分类交接。"
+        p3: "通常不处理的分类交接。"
+  edges:
+    - start.task -> classify
+    - classify.p0 -> end.p0
+    - classify.p1 -> end.p1
+    - classify.p2 -> end.p2
+    - classify.p3 -> end.p3

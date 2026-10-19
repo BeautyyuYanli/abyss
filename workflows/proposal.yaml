@@ -10,61 +10,38 @@ instructions:
 graph:
   nodes:
     draft:
-      use: {
-        "role": "^",
-        "input_type": {
-          "task": "首次提案任务及必要背景的自然语言文本；任务也可来自最近对话。",
-          "revision": "已有提案的位置、修改要求及相关背景的自然语言文本，可说明需更新的章节。"
-        },
-        "output_type": {
-          "done": "自然语言交接文本，说明任务、草稿位置、首次或后续修改、交付范围及变更理由。"
-        },
-        "run": "skill:proposal-draft"
-      }
-      in: current
+      run: skill:proposal-draft
     review:
-      use: {
-        "role": "^",
-        "input_type": {
-          "draft": "自然语言草稿交接，说明任务、提案位置、交付范围与变更情况。"
-        },
-        "output_type": {
-          "done": "保留原交接内容并附过度设计审查结论、具体简化建议和理由的自然语言文本。"
-        },
-        "run": "skill:proposal-review-complexity"
-      }
+      use:
+        role: ^
+        input_type:
+          draft: "自然语言草稿交接，说明任务、提案位置、交付范围与变更情况。"
+          revision: "已有提案的位置、待落实的修改要求及相关背景；交付更新章节及简短说明。"
+        output_type:
+          done: "保留任务、提案位置、交付范围、待落实的修改要求及已有变更说明，并附过度设计审查结论、具体简化建议和理由的自然语言文本。"
+        graph:
+          nodes:
+            review:
+              run: skill:proposal-review-complexity
+              input_type:
+                draft: "首次提案草稿及包含任务、提案位置和交付范围的自然语言交接。"
+                revision: "已有提案的位置、待落实的修改要求及相关背景；交付更新章节及简短说明。"
+          edges:
+            - start.draft -> review.draft
+            - start.revision -> review.revision
+            - review -> end.done
       in:
         new:
           workspace: ^
           history: none
     simplify:
-      use: {
-        "role": "^",
-        "input_type": {
-          "review": "包含草稿交接和过度设计审查结论、简化建议及理由的自然语言文本。"
-        },
-        "output_type": {
-          "done": "完成一次简化后的自然语言交接，说明任务、提案位置、交付范围、更新章节及变更理由。"
-        },
-        "run": "skill:proposal-apply-simplifications"
-      }
-      in: current
+      run: skill:proposal-apply-simplifications
     publish:
-      use: {
-        "role": "^",
-        "input_type": {
-          "proposal": "自然语言交接，说明最终提案的位置、应完整交付或仅交付更新章节，以及变更说明。"
-        },
-        "output_type": {
-          "done": "最终交付的自然语言文本；首次为完整提案，后续修改为更新章节及简短说明。"
-        },
-        "run": "skill:proposal-delivery"
-      }
-      in: current
+      run: skill:proposal-delivery
   edges:
-    - start.task -> draft.task
-    - start.revision -> draft.revision
-    - draft.done -> review.draft
-    - review.done -> simplify.review
-    - simplify.done -> publish.proposal
-    - publish.done -> end.done
+    - start.task -> draft
+    - start.revision -> review.revision
+    - draft -> review.draft
+    - review.done -> simplify
+    - simplify -> publish
+    - publish -> end.done

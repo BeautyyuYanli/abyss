@@ -4,7 +4,7 @@
 
 ## 会话选择
 
-`in: current` 在当前调用栈执行。`in.ref` 从运行内绑定取得实际 Lody session ID；指向当前 session 时仍在本地执行，指向其他 session 时使用 `lody_session_chat`。`in.new` 仅在调用位置首次激活时创建，后续激活使用已保存的 session ID 继续同一会话。
+`run` 动作固定在当前调用栈执行，不调用会话工具，也不接受 `in`。`use` 调用必须声明 `in.ref` 或 `in.new`：`in.ref` 从运行内绑定取得实际 Lody session ID；指向当前 session 时在本地执行所选 workflow，指向其他 session 时使用 `lody_session_chat`。`in.new` 仅在调用位置首次激活时创建，后续激活使用已保存的 session ID 继续同一会话。
 
 创建前通过 `lody_session_create_options` 确认当前 session、机器、agent 配置和本地项目；需要更多候选时使用相应目录查询工具。使用实际目录确认空间关系，不能仅凭项目名、分支名或父子关系认定空间相同。DSL 的 `role` 仍由 prompt 中的 skill 值解释，不自动作为 Lody 的 `agentRoleId`。
 
@@ -31,7 +31,7 @@
 
 ## 投递、绑定与完成
 
-创建使用 `lody_session_create`，继续已有 session 使用 `lody_session_chat`；并行组分别使用 `lody_session_create_many` 和 `lody_session_chat_many`，组内每个分支绑定不同的实际 session。所有 `prompt` 参数只填 CLI 生成的完整原文，不追加解释、说明或额外指令。
+跨 session 的 `use` 创建使用 `lody_session_create`，继续已有 session 使用 `lody_session_chat`；并行组分别使用 `lody_session_create_many` 和 `lody_session_chat_many`，组内每个分支绑定不同的实际 session。所有 `prompt` 参数只填 CLI 生成的完整原文，不追加解释、说明或额外指令。`run` 的本地预览 prompt 不用于派发其他 session。
 
 为异步调用提供 `operationId`，按工具契约接收自动完成通知，不循环轮询操作状态。提交确认只表示请求已接收，不是 workflow 输出。批量调用逐项关联结果与调用位置，不能将一个分支的失败视为其他分支也完成。
 
