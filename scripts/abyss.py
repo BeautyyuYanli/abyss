@@ -7,9 +7,12 @@
 
 The calling agent owns graph execution, session creation, namespace bindings and
 temporary state. This script validates input and callee context, preserves
-workflow/action values and references skill:abyss. A referenced workflow is read only
-when its interface is needed to default an omitted input type; resource contents
-are not expanded into the prompt. Relative resource paths use the skill root.
+workflow/action values and references skill:abyss. The selected workflow definition
+is read to check its interface and instructions. Whole-field or list-item ^ in
+workflow instructions is replaced with the caller's list; this materializes a
+referenced definition inline while preserving instruction order and duplicates.
+Caller-only context.parent is omitted from the prompt. Nested declarations and
+skill references remain unexpanded. Relative resource paths use the skill root.
 It can be copied and executed from any working directory; uv provides the
 dependencies declared above. Stdout contains only the prompt; errors use stderr.
 """
@@ -103,10 +106,17 @@ def ports(value: Any, label: str) -> dict[str, str]:
 
 
 def validate_action(value: Any) -> dict[str, Any]:
-    """Omitted interfaces are anonymous; explicit interfaces must be nonempty."""
+    """Accept one skill or a nonempty ordered list, preserving the declaration.
+
+    Omitted interfaces are anonymous; explicit interfaces must be nonempty.
+    """
     action = mapping(value, "run action")
     fields(action, {"run", "input_type", "output_type", "instructions"}, "run action")
-    skills([action.get("run")], "run action.run")
+    run = action.get("run")
+    run_skills = run if isinstance(run, list) else [run]
+    if not run_skills:
+        raise InvocationError("run action.run must contain at least one skill")
+    skills(run_skills, "run action.run")
     for direction in ("input_type", "output_type"):
         if direction in action:
             ports(action[direction], f"run action.{direction}")
@@ -142,6 +152,14 @@ def validate_use(value: Any) -> dict[str, Any]:
         identifier(binding.get("ref"), "use call.sessions binding.ref")
     validate_workflow(call.get("use"))
     return call
+
+
+def validate_node(value: Any) -> dict[str, Any]:
+    """Use the same run/use node grammar in graphs and single-node workflows."""
+    node = mapping(value, "node")
+    if ("run" in node) == ("use" in node):
+        raise InvocationError("node must contain exactly one of run or use")
+    return validate_action(node) if "run" in node else validate_use(node)
 
 
 def validate_endpoint(
@@ -208,7 +226,14 @@ def validate_edges(definition: dict[str, Any]) -> None:
 
 
 def validate_workflow(value: Any) -> dict[str, Any] | None:
-    """Check workflow graphs and inline nodes; resource references stay opaque."""
+    """Check graph or single-node workflows; resource references stay opaque.
+
+    A single run node inherits omitted interfaces from the workflow. Explicit
+    node or inline callee interfaces must match the workflow's port names for
+    identity forwarding; referenced callee interfaces are checked by the host.
+    Instructions may be a list with ^ entries or a whole-field ^. Inheritance is
+    resolved only when selected for execution; nested declarations stay unchanged.
+    """
     if isinstance(value, str):
         if not value.startswith("workflow:") or not value.removeprefix("workflow:"):
             raise InvocationError("use must be a workflow: reference or an object")
@@ -216,13 +241,26 @@ def validate_workflow(value: Any) -> dict[str, Any] | None:
     definition = mapping(value, "workflow")
     fields(
         definition,
-        {"role", "input_type", "output_type", "instructions", "graph"},
+        {"input_type", "output_type", "instructions", "graph", "node"},
         "workflow",
     )
-    skills([definition.get("role")], "workflow.role")
     for direction in ("input_type", "output_type"):
         ports(definition.get(direction), f"workflow.{direction}")
-    skills(definition.get("instructions", []), "workflow.instructions")
+    if definition.get("instructions", []) != "^":
+        skills(definition.get("instructions", []), "workflow.instructions")
+    if ("node" in definition) == ("graph" in definition):
+        raise InvocationError("workflow must contain exactly one of node or graph")
+    if "node" in definition:
+        node = validate_node(definition["node"])
+        interfaces = node if "run" in node else node["use"]
+        if isinstance(interfaces, dict):
+            for direction in ("input_type", "output_type"):
+                interface = interfaces.get(direction, definition[direction])
+                if interface.keys() != definition[direction].keys():
+                    raise InvocationError(
+                        f"single node {direction} must match workflow ports"
+                    )
+        return definition
     graph = mapping(definition.get("graph"), "graph")
     fields(graph, {"nodes", "edges"}, "graph")
     nodes = mapping(graph.get("nodes"), "graph.nodes")
@@ -230,11 +268,7 @@ def validate_workflow(value: Any) -> dict[str, Any] | None:
         identifier(name, "graph node")
         if name in ("start", "end"):
             raise InvocationError(f"reserved graph node: {name}")
-        node = mapping(node, f"graph.nodes.{name}")
-        if "run" in node:
-            validate_action(node)
-        else:
-            validate_use(node)
+        validate_node(node)
     edges = graph.get("edges")
     if not isinstance(edges, list) or not all(isinstance(e, str) for e in edges):
         raise InvocationError("graph.edges must be a list of edge strings")
@@ -243,7 +277,7 @@ def validate_workflow(value: Any) -> dict[str, Any] | None:
 
 
 def validate_context(value: Any) -> dict[str, Any]:
-    """Default and check callee context without importing the caller's namespace."""
+    """Check resources, explicit imports and caller-only inheritance input."""
     context = {} if value is None else mapping(value, "context")
     fields(context, {"resources", "parent", "sessions"}, "context")
     resources = mapping(context.get("resources", {}), "context.resources")
@@ -252,12 +286,10 @@ def validate_context(value: Any) -> dict[str, Any]:
     for kind, location in resources.items():
         text(location, f"context.resources.{kind}")
     parent = mapping(context.get("parent", {}), "context.parent")
-    fields(parent, {"role", "instructions"}, "context.parent")
-    if "role" in parent:
-        skills([parent["role"]], "context.parent.role")
-        if parent["role"] == "^":
-            raise InvocationError("context.parent.role must already be resolved")
+    fields(parent, {"instructions"}, "context.parent")
     skills(parent.get("instructions", []), "context.parent.instructions")
+    if "^" in parent.get("instructions", []):
+        raise InvocationError("context.parent.instructions must already be resolved")
     sessions = context.get("sessions", [])
     if not isinstance(sessions, list):
         raise InvocationError(
@@ -280,21 +312,27 @@ def prepare_invocation(
     input_message: Any = None,
     context: Any = None,
 ) -> dict[str, Any]:
-    """Prepare a workflow handoff or local action preview, preserving declarations.
+    """Prepare a workflow handoff or local action preview without caller context.
 
     ``workflow`` accepts a workflow definition/reference, a use call or a local
-    run action. A use call must declare ref/new; the host resolves its bindings,
-    so only its use value goes to the callee. A run action stays local and has
+    run action. Workflow definitions declare graph or node and named interfaces.
+    A use call must declare ref/new; the host resolves its bindings, so only its
+    use value goes to the callee. A standalone run action stays local and has
     one anonymous port per omitted interface, represented internally by None.
     Anonymous input envelopes omit type; null and placeholder names are invalid.
-    Non-string JSON
-    input bodies are serialized as text, with enum tags kept as routing metadata.
+    Non-string JSON input bodies are serialized as text, with enum tags kept
+    as routing metadata.
     Omitted input uses the first declared input enum and an empty text body.
-    For opaque references, only this default requires reading the definition.
-    The original workflow, input and context are never mutated. Inheritance is
-    interpreted by the receiving session from the definition and context.parent.
+    The selected referenced definition is read even for explicit input types.
+    A whole-field or list-item ^ in the selected workflow's instructions expands
+    the parent's list, defaulting to []; order and duplicates are preserved.
+    Referenced inheriting workflows become inline. Instructions without ^ never
+    inherit. Nested workflows resolve on their own activation. The output context
+    contains resources and sessions.
+    The original workflow, input, context and resource files are never mutated.
     """
-    if isinstance(workflow, dict) and "run" in workflow:
+    is_action = isinstance(workflow, dict) and "run" in workflow
+    if is_action:
         selected = workflow
         definition = validate_action(selected)
         input_ports = definition.get("input_type")
@@ -307,21 +345,32 @@ def prepare_invocation(
         definition = validate_workflow(selected)
         input_ports = definition["input_type"] if definition is not None else None
     context = validate_context(context)
+    if definition is None:
+        directory = Path(context["resources"]["workflows"])
+        if not directory.is_absolute():
+            directory = Path(__file__).resolve().parents[1] / directory
+        path = directory / f"{selected.removeprefix('workflow:')}.yaml"
+        definition = validate_workflow(parse_document(path.read_text(encoding="utf-8")))
+        if definition is None:
+            raise InvocationError("referenced workflow must contain a definition")
+        input_ports = definition["input_type"]
+    parent = context.pop("parent")
+    if not is_action:
+        instructions = definition.get("instructions", [])
+        if instructions == "^":
+            instructions = ["^"]
+        if "^" in instructions:
+            resolved = []
+            for instruction in instructions:
+                if instruction == "^":
+                    resolved.extend(parent.get("instructions", []))
+                else:
+                    resolved.append(instruction)
+            selected = {**definition, "instructions": resolved}
 
     message = {} if input_message is None else mapping(input_message, "input message")
     fields(message, {"type", "value"}, "input message")
     if "type" not in message:
-        if definition is None:
-            directory = Path(context["resources"]["workflows"])
-            if not directory.is_absolute():
-                directory = Path(__file__).resolve().parents[1] / directory
-            path = directory / f"{selected.removeprefix('workflow:')}.yaml"
-            definition = validate_workflow(
-                parse_document(path.read_text(encoding="utf-8"))
-            )
-            if definition is None:
-                raise InvocationError("referenced workflow must contain a definition")
-            input_ports = definition["input_type"]
         input_type = next(iter(input_ports)) if input_ports is not None else None
     else:
         input_type = identifier(message["type"], "input.type")
@@ -329,13 +378,10 @@ def prepare_invocation(
     if not isinstance(value, str):
         value = json.dumps(value, ensure_ascii=False, allow_nan=False)
 
-    if definition is not None:
-        if input_ports is None and input_type is not None:
-            raise InvocationError("anonymous input must omit type")
-        if input_ports is not None and input_type not in input_ports:
-            raise InvocationError(f"unknown input enum: {input_type}")
-        if definition.get("role") == "^" and "role" not in context.get("parent", {}):
-            raise InvocationError("role: ^ requires context.parent.role")
+    if input_ports is None and input_type is not None:
+        raise InvocationError("anonymous input must omit type")
+    if input_ports is not None and input_type not in input_ports:
+        raise InvocationError(f"unknown input enum: {input_type}")
     message = {"value": value}
     if input_type is not None:
         message["type"] = input_type
@@ -347,11 +393,11 @@ def prepare_invocation(
 
 
 def render_prompt(workflow: Any, input_message: Any = None, context: Any = None) -> str:
-    """Serialize workflow/action, input and context without expanding resources."""
+    """Serialize resolved instructions, input and context without parent metadata."""
     invocation = prepare_invocation(workflow, input_message, context)
     payload = json.dumps(invocation, ensure_ascii=False, indent=2, allow_nan=False)
     return (
-        "请读取并遵循 skill:abyss，使用以下 workflow、input 和 context 执行本次工作；workflow 为 run 声明时在当前会话执行动作。\n\n"
+        "请读取并遵循 skill:abyss，使用以下 workflow、input 和 context 执行本次工作；workflow 定义使用 graph 或 node，独立 run 声明在当前会话执行动作。\n\n"
         "```json\n" + payload + "\n```\n"
     )
 
@@ -381,7 +427,7 @@ def main(argv: list[str] | None = None) -> int:
     inputs.add_argument("--input-file", help="YAML/JSON input message file, or -")
     prompt.add_argument(
         "--context",
-        help="execution context (resources, parent, sessions) as YAML/JSON, or -",
+        help="generation context (resources, caller-only parent, sessions) as YAML/JSON, or -",
     )
     prompt.add_argument(
         "-o", "--output", help="write the prompt to a UTF-8 file instead of stdout"

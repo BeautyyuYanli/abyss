@@ -1,9 +1,9 @@
 ---
 name: classify-priority
-description: Classify a work item as P0–P3 using verifiable evidence, actual impact, and recoverability for prioritization in workflow:classify.
+description: Classify work items as P0–P3 using verifiable evidence, actual impact, and recoverability, and order findings in reports.
 ---
 
-Classify the supplied work item against its stated core goal before deciding its order and effort. This action produces a priority decision and handoff; it does not execute the work.
+Classify each supplied work item against its stated core goal before deciding its order and effort. Produce priority decisions and a handoff without executing the classified work.
 
 Use verifiable evidence, the actual scope of impact, and recoverability:
 
@@ -14,4 +14,8 @@ Use verifiable evidence, the actual scope of impact, and recoverability:
 
 Base escalation on demonstrated impact. Hypothetical risks, a difference from a preferred implementation, or missing information alone do not establish P0 or P1. Limit verification to facts that could materially change the priority or disposition. If a necessary fact cannot be established from available materials, ask a focused question rather than inventing evidence.
 
-Return the matching `p0`, `p1`, `p2`, or `p3` output with a concise natural-language handoff preserving the work item, relevant constraints, decision-relevant evidence, material uncertainty, and the handling recommendation. The classification guides routing and tradeoffs. When this is part of a larger task, keep minor classifications internal instead of producing separate grading announcements or reports. When the user explicitly asks for classification, provide the result and only the explanation needed to understand it.
+Follow the enclosing action's output contract. For a single work item with `p0`, `p1`, `p2`, and `p3` output ports, return the matching port with a concise natural-language handoff preserving the work item, relevant constraints, decision-relevant evidence, material uncertainty, and the handling recommendation.
+
+For a report of findings, classify each finding, label it P0–P3, and order findings from P0 to P3. Preserve the report's task, constraints, evidence, repair scope, and verdict or selected disposition, then return it through the declared result port. An empty finding list remains empty.
+
+The classification guides routing and tradeoffs. When this is part of a larger task, keep minor classifications within the task's handoff instead of producing separate grading announcements or reports. When the user explicitly asks for classification, provide the result and only the explanation needed to understand it.

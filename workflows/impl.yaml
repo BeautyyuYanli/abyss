@@ -1,131 +1,107 @@
-role: skill:persona-mei
 input_type:
   task: "实现任务及必要背景的自然语言文本；提案或文档作为输入时提供文件位置。"
 output_type:
-  done: "全部五项审查在同一轮通过当前实现后的完整报告。"
+  done: "聚焦接口设计、底层数据模型与存储、生命周期及其他对外可观察变化的最终实现报告。"
 instructions:
+  - skill:persona-mei
   - skill:impl-loop
 graph:
   nodes:
     implement:
       use:
-        role: skill:persona-elysia
         input_type:
-          task: "首次实现任务、约束及材料位置。"
-          rework: "原任务、循环状态及校验后合并的待修复问题和修复范围。"
+          task: "实现任务、约束及材料位置，可包含经核实的汇总审查报告和修复范围。"
         output_type:
-          done: "共用审查交接，包含任务、约束、工作区、循环标识、轮次、状态目录、实现工件、改动说明及检查结果。"
-        graph:
-          nodes:
-            implement:
-              run: skill:impl-implement
-              input_type:
-                task: "首次实现任务、约束及材料位置。"
-                rework: "原任务、循环状态及校验后合并的待修复问题和修复范围。"
-          edges:
-            - start.task -> implement.task
-            - start.rework -> implement.rework
-            - implement -> end.done
+          done: "共用审查交接，包含任务、约束、改动说明及检查结果；当前实现位于共享工作区。"
+        instructions:
+          - skill:persona-elysia
+        node:
+          run: skill:impl-implement
       in:
         new:
           workspace: ^
           history: none
     code-hygiene:
       use:
-        role: skill:persona-eden
         input_type:
-          review: "共用审查交接及本人反馈目录，包含任务、循环标识、当前轮次、实现工件和检查结果。"
+          review: "任务、约束、改动说明和检查结果；审查共享工作区中的当前实现。"
         output_type:
-          done: "本方面的审查报告，包含循环标识、轮次、PASS 或 FAILED、按优先级排列的问题及证据。"
+          done: "本方面的审查报告，包含方面标识、PASS 或 FAILED、标注 P0–P3 并按优先级从高到低排列的问题及证据。"
         instructions:
+          - skill:persona-eden
           - "The fixed aspect identifier is code-hygiene. Review code and logic hygiene only. Prefer deletion and simplification. Identify dead paths, duplication, unnecessary abstractions, code smells, and custom code duplicating functionality in the codebase, current dependencies, or a well-established and actively maintained library."
-        graph:
-          nodes:
-            review:
-              run: skill:impl-review
-          edges:
-            - start.review -> review
-            - review -> end.done
+        node:
+          run:
+            - skill:impl-review
+            - skill:classify-priority
       in:
         new:
           workspace: ^
           history: none
     correctness:
       use:
-        role: skill:persona-eden
         input_type:
-          review: "共用审查交接及本人反馈目录，包含任务、循环标识、当前轮次、实现工件和检查结果。"
+          review: "任务、约束、改动说明和检查结果；审查共享工作区中的当前实现。"
         output_type:
-          done: "本方面的审查报告，包含循环标识、轮次、PASS 或 FAILED、按优先级排列的问题及证据。"
+          done: "本方面的审查报告，包含方面标识、PASS 或 FAILED、标注 P0–P3 并按优先级从高到低排列的问题及证据。"
         instructions:
+          - skill:persona-eden
           - "The fixed aspect identifier is correctness. Review correctness and task completion only: whether the implementation behaves correctly and fully satisfies the task, proposal, or document."
-        graph:
-          nodes:
-            review:
-              run: skill:impl-review
-          edges:
-            - start.review -> review
-            - review -> end.done
+        node:
+          run:
+            - skill:impl-review
+            - skill:classify-priority
       in:
         new:
           workspace: ^
           history: none
     test-hygiene:
       use:
-        role: skill:persona-eden
         input_type:
-          review: "共用审查交接及本人反馈目录，包含任务、循环标识、当前轮次、实现工件和检查结果。"
+          review: "任务、约束、改动说明和检查结果；审查共享工作区中的当前实现。"
         output_type:
-          done: "本方面的审查报告，包含循环标识、轮次、PASS 或 FAILED、按优先级排列的问题及证据。"
+          done: "本方面的审查报告，包含方面标识、PASS 或 FAILED、标注 P0–P3 并按优先级从高到低排列的问题及证据。"
         instructions:
+          - skill:persona-eden
           - "The fixed aspect identifier is test-hygiene. Review test hygiene only. Prefer deleting redundant, meaningless, or misleading tests, especially new tests. Identify meaningless negative checks such as 'something does not exist' and tests exhibiting the Texas sharpshooter fallacy. Recommend removal before adding or restructuring tests."
-        graph:
-          nodes:
-            review:
-              run: skill:impl-review
-          edges:
-            - start.review -> review
-            - review -> end.done
+        node:
+          run:
+            - skill:impl-review
+            - skill:classify-priority
       in:
         new:
           workspace: ^
           history: none
     test-adequacy:
       use:
-        role: skill:persona-eden
         input_type:
-          review: "共用审查交接及本人反馈目录，包含任务、循环标识、当前轮次、实现工件和检查结果。"
+          review: "任务、约束、改动说明和检查结果；审查共享工作区中的当前实现。"
         output_type:
-          done: "本方面的审查报告，包含循环标识、轮次、PASS 或 FAILED、按优先级排列的问题及证据。"
+          done: "本方面的审查报告，包含方面标识、PASS 或 FAILED、标注 P0–P3 并按优先级从高到低排列的问题及证据。"
         instructions:
+          - skill:persona-eden
           - "The fixed aspect identifier is test-adequacy. Review test adequacy only: whether meaningful tests sufficiently verify the task's behavior and relevant regressions."
-        graph:
-          nodes:
-            review:
-              run: skill:impl-review
-          edges:
-            - start.review -> review
-            - review -> end.done
+        node:
+          run:
+            - skill:impl-review
+            - skill:classify-priority
       in:
         new:
           workspace: ^
           history: none
     documentation:
       use:
-        role: skill:persona-eden
         input_type:
-          review: "共用审查交接及本人反馈目录，包含任务、循环标识、当前轮次、实现工件和检查结果。"
+          review: "任务、约束、改动说明和检查结果；审查共享工作区中的当前实现。"
         output_type:
-          done: "本方面的审查报告，包含循环标识、轮次、PASS 或 FAILED、按优先级排列的问题及证据。"
+          done: "本方面的审查报告，包含方面标识、PASS 或 FAILED、标注 P0–P3 并按优先级从高到低排列的问题及证据。"
         instructions:
+          - skill:persona-eden
           - "The fixed aspect identifier is documentation. Review implementation documentation only: the sufficiency of notes, docstrings, comments, and documentation. Treat the proposal as implementation input; do not edit it or request changes to it as documentation."
-        graph:
-          nodes:
-            review:
-              run: skill:impl-review
-          edges:
-            - start.review -> review
-            - review -> end.done
+        node:
+          run:
+            - skill:impl-review
+            - skill:classify-priority
       in:
         new:
           workspace: ^
@@ -133,15 +109,13 @@ graph:
     validate:
       run: skill:impl-validate
       output_type:
-        clarify: "同一轮当前实现的共用审查交接；各方面的校验反馈已分别保存，不含其他方面的报告或意见。"
-        rework: "保留任务、约束及循环状态，附去重并解决冲突后的已接受问题和修复范围。"
-        passed: "最终任务、循环状态、实现说明、检查结果，以及同一轮当前实现的五份已校验 PASS 报告。"
+        rework: "经核实并剔除不合适问题的汇总审查报告，包含原任务、约束、保留的问题、证据及修复范围；每项问题标注 P0–P3，并按 P0、P1、P2、P3 的顺序从高到低排列。"
+        passed: "已核实且无保留问题的汇总报告，包含任务、实现说明、检查结果及各方面的核实结论。"
     publish:
       run: skill:impl-delivery
   edges:
     - start.task -> implement.task
     - implement.done -> [code-hygiene.review, correctness.review, test-hygiene.review, test-adequacy.review, documentation.review] -> validate
-    - validate.clarify -> [code-hygiene.review, correctness.review, test-hygiene.review, test-adequacy.review, documentation.review] -> validate
-    - validate.rework -> implement.rework
+    - validate.rework -> implement.task
     - validate.passed -> publish
     - publish -> end.done
