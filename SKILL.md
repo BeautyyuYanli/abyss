@@ -1,6 +1,6 @@
 ---
 name: abyss
-description: 解释并执行 Abyss workflow DSL。用于用户指定 workflow 资源、内联定义或携带 workflow、input 和 context 的执行请求，按图调度当前、新建和已有 agent session。
+description: 解释并执行 Abyss workflow DSL。用于用户指定 workflow 资源、内联定义或携带 workflow 和 input 的执行请求，按图调度当前、新建和已有 agent session。
 ---
 
 # Abyss 工作流 DSL
@@ -14,9 +14,9 @@ description: 解释并执行 Abyss workflow DSL。用于用户指定 workflow �
 | skill | `skill:<path>` 引用，或非空字符串形式的内联 prompt-only 正文。 |
 | workflow | `workflow:<path>` 引用，或内联定义对象。 |
 
-资源目录由 `context.resources` 提供，默认使用本 skill 下的 `skills/` 和 `workflows/`。相对目录以本 `SKILL.md` 所在目录为基准，绝对目录直接使用；只覆盖一项时另一项沿用默认值。skill 对应 `<skills>/<path>/SKILL.md`，workflow 对应 `<workflows>/<path>.yaml`。需要附属脚本或资源的 skill 使用引用。
+`skill:<path>` 先查当前 session 已加载的 skills；未找到时，读取本 skill 下的 `skills/<path>/SKILL.md`。`workflow:<path>` 读取本 skill 下的 `workflows/<path>.yaml`。路径以 Abyss 的安装位置为基准，与当前工作目录无关。需要附属脚本或资源的 skill 使用引用。
 
-skill 值用于 `run` 和 `instructions`；workflow 值用于 `use`。内联 workflow 不注册为资源，其内部引用仍从资源目录解析。同一次根运行采用的定义保持固定。
+skill 值用于 `run` 和 `instructions`；workflow 值用于 `use`。内联 workflow 不注册为资源，其内部引用沿用上述解析规则。同一次根运行采用的定义保持固定。
 
 声明字段以各表所列为准。资源路径各段、节点标识、会话引用名和枚举名使用字母开头的字母、数字、连字符、下划线组合；`start` 和 `end` 是保留图端点。
 
@@ -69,7 +69,7 @@ workflow 必须声明具名接口。`run` 动作的两个接口分别可选：�
 
 workflow 的指令约束本次调用及其本地动作。`run.instructions` 是追加的局部 skill 值列表，只在该动作期间生效；根位置的独立 `run` 沿用宿主会话当前的有效指令。
 
-workflow 的 `instructions` 显式使用 `^` 时，CLI 展开 `context.parent.instructions`：
+workflow 的 `instructions` 显式使用 `^` 时，CLI 展开生成参数 `--parent-instructions` 提供的父指令列表：
 
 - 整个字段为 `^`：复制父列表。
 - 列表项为 `^`：在该位置展开父列表，保留顺序和重复项。
@@ -89,7 +89,7 @@ instructions:
 
 ## run 动作
 
-`run` 在当前会话执行，不创建会话。
+`run` 固定在当前调用栈执行，不调用会话工具，也不接受 `in`。
 
 | 字段 | 契约 |
 | --- | --- |
@@ -112,10 +112,10 @@ run:
 | 字段 | 契约 |
 | --- | --- |
 | `use` | 必填，workflow 引用或内联定义。 |
-| `in` | 必填，只能是 `{ref: <alias>}` 或 `{new: {...}}`。 |
-| `sessions` | 显式导入的会话引用映射，默认 `{}`；键为被调用方局部名，值为 `current` 或 `{ref: <caller-alias>}`。 |
+| `in` | 必填，只能是 `{ref: <alias>}`、`{ref: {id: <session-id>}}` 或 `{new: {...}}`。 |
+| `sessions` | 显式导入的会话引用映射，默认 `{}`；键为被调用方局部名，值为 `current`、`{ref: <caller-alias>}` 或 `{ref: {id: <session-id>}}`。 |
 
-`in.ref` 在调用方局部命名空间中查找实际会话，保留目标已有工作区与历史。引用未绑定、失效或不可访问时报告问题，不自动创建替代会话。指向当前实际会话时，在当前调用栈同步执行子 workflow，不向自身发消息等待回复。
+字符串形式的 `ref` 在调用方局部命名空间中查找实际会话；`ref: {id: ...}` 直接使用已解析的实际 session ID，不附带别名。两者都保留目标已有工作区与历史。引用未绑定、失效或不可访问时报告问题，不自动创建替代会话。指向当前实际会话时，在当前调用栈同步执行子 workflow，不向自身发消息等待回复。
 
 `in.new` 的配置对象可以为空：
 
@@ -125,15 +125,17 @@ run:
 | `workspace` | `^`、`fork` 或 `none`，默认 `^`。 |
 | `history` | `fork` 或 `none`，默认 `none`。 |
 
-未声明 `as` 的新会话也按调用位置保存。引用名不能重复声明、改绑或覆盖导入的引用；只有创建成功后才能使用。循环回到同一位置的复用规则见运行生命周期。
+未声明 `as` 的新会话也按调用位置绑定。引用名不能重复声明、改绑或覆盖导入的引用；只有创建成功后才能使用。循环回到同一位置的复用规则见运行生命周期。
 
 ### 会话引用作用域
 
-每次根运行中，各 workflow 调用位置分别持有局部命名空间，跨循环保留。同一定义从不同位置调用时分别管理引用；资源目录、文件位置和实际会话是否相同都不合并这些命名空间。
+每次根运行中，各 workflow 调用位置分别持有局部命名空间，跨循环保留。同一定义从不同位置调用时分别管理引用；文件位置和实际会话是否相同都不合并这些命名空间。
 
-`sessions` 中的 `current` 和 `ref` 先在调用方解析为实际 session ID，再以被调用方的局部名字放入 `context.sessions`。根调用的绑定由宿主提供。只导入显式声明的引用，调用返回不自动导出引用；父调用和兄弟调用不能读取子调用内部创建的局部名。
+调用方将 `sessions` 中的 `current` 和 `ref` 解析为实际 session ID，以被调用方的局部名组成 `--sessions` 生成参数。CLI 将所选 workflow 中已导入的引用替换为 `ref: {id: ...}`，包括其子调用 `sessions` 中使用的来源引用；子 workflow 定义内部的引用留待其自身激活时处理。`new.as` 创建的别名仍在运行时绑定和解析。
 
-资源引用与会话引用分别解析：`skill:`、`workflow:` 使用资源目录，`in.ref` 使用运行时命名空间。
+生成前核对当前作用域的别名：必须来自显式导入或本 workflow 声明的 `new.as`，否则报错。`new.as` 是否已执行并建立实际绑定，由执行 agent 在调用时检查。
+
+根调用的导入绑定由宿主提供。只导入显式声明的引用，调用返回不自动导出引用；父调用和兄弟调用不能读取子调用内部创建的局部名。资源引用按安装位置与已加载 skills 解析，会话引用按局部别名或实际 ID 解析。
 
 ### 工作区与历史
 
@@ -176,43 +178,45 @@ run:
 
 同一个实际会话不能并发执行两个独立激活。本地嵌套调用同步等待返回；跨会话调用前确认目标可接收工作，并避免循环等待。循环所需背景与反馈通过正文传递，退出或继续由结果端口决定；没有隐式重试或默认最大轮次，等待用户决定时保留当前激活。
 
-根运行结束后绑定作用域结束。会话收尾按 adapter 执行，区分本次创建与外部传入的会话；子调用的一次返回不提前结束整次运行的会话生命周期。
+根运行结束后绑定作用域结束。运行正常完成或明确终止后，创建方按 adapter 回收本次通过 `in.new` 创建的全部会话，包括未声明 `as` 及嵌套创建的会话。通过 `ref` 复用或 `sessions` 传递引用不改变回收责任；外部传入的会话不在回收范围。
 
-### 按需保存执行状态
+回收前完成结果交接和工件交付，并确认在途执行已结束。子调用返回、返工循环及等待用户输入时保留会话供后续激活复用。新建的根承载会话由外层宿主收到最终结果后回收；共享工作区和已交付工件继续保留。回收失败时报告未完成项。
 
-存在跨会话调用、循环复用、恢复或回收待办时，保存继续执行所需的信息：当前调用栈与进度、按运行和调用位置区分的会话绑定、在途操作与所属激活、待汇合结果和回收状态。
+## CLI 交接
 
-使用宿主可恢复的状态或按需创建的临时文件即可；普通本地动作不要求创建状态目录，也不强制笔记文件名。共享工作区中的记录仍需区分各自运行与引用作用域。
+执行请求只包含 `workflow` 和 `input`。CLI 的目标参数接受 workflow 资源引用、workflow 定义或独立 run 的 YAML/JSON 文件，也可用 `-` 从标准输入读取。调用方先处理外层 `use` 的会话选择与导入，再将其 `use` 值传给 CLI。
 
-派发前记录待办，创建成功后补充实际 session ID，收到结果后更新进度。投递状态不明时先核对原调用再决定后续行动。调用和回收均完成后可清理临时记录；应交付的工件由执行 skill 保存到目标位置。
+以下可选参数接收内联 JSON；对应的 `*-file` 参数接收 YAML/JSON 文件或 `-`。每对参数互斥，所有输入中最多一项使用标准输入：
 
-## 执行上下文与 CLI 交接
-
-执行请求由 `workflow`、`input` 和 `context` 组成。CLI 接收的 `context` 字段如下：
-
-| 字段 | 契约 |
+| 参数 | 契约 |
 | --- | --- |
-| `resources` | 资源目录对象，默认 `{skills: skills, workflows: workflows}`，按资源规则定位。 |
-| `parent` | 仅供生成阶段展开指令；`instructions` 是已解析、没有继承标记的 skill 值列表，省略时为 `[]`。 |
-| `sessions` | 显式导入的绑定列表，默认 `[]`；每项为 `{ref: <local-name>, value: <session-id>}`。名字唯一，不同名字可指向同一实际会话。 |
+| `--input` / `--input-file` | 含 `type`、`value` 的输入消息，默认值见接口规则。 |
+| `--parent-instructions` / `--parent-instructions-file` | 已解析、没有继承标记的父 skill 值列表，省略时为 `[]`。 |
+| `--sessions` / `--sessions-file` | 已导入的 `<local-name>: <session-id>` 映射，省略时为 `{}`；ID 是非空字符串，不同名字可指向同一实际会话。 |
 
-CLI 处理后移除整个 `parent`，最终 prompt 的 `context` 只含 `resources` 和 `sessions`。所选 workflow 引用总会被读取以校验接口并判断继承；需要展开指令时输出内联定义，其余引用与嵌套声明保持原值。
+父指令只在 `^` 处展开，会话绑定只在当前 workflow 作用域的引用处展开，生成参数本身不进入 prompt。所选 workflow 引用总会被读取以校验接口；指令或引用被展开时输出内联定义，其余引用与嵌套定义保持原值。skill 引用由执行 agent 按资源规则解析。
 
 执行会话操作前，读取 [adapters/](adapters/) 中对应宿主的适配说明，并核对当前工具描述。模型、权限和工具参数由宿主管理；能力不能满足声明时报告不支持，不自动更换空间、历史或会话策略。
+
+用户直接要求运行一个 workflow（资源引用或内联定义）时，在当前 session 开始执行。用户显式提供 `use` 调用时，按其 `in` 选择承载会话。
 
 承载会话收到 CLI 生成的执行请求后，直接执行其中的 workflow，不再次创建根会话。单节点形式执行其 `node`，图形式按边调度；最终根结果交回收到用户请求的 agent。
 
 调用方的执行顺序：
 
-1. 从用户请求或前驱取得输入，读取所选 workflow 的接口并核对交接材料。用户直接指定 workflow 时，宿主使用已提供的目标引用构造根 `use.in.ref`，否则使用 `use.in.new: {}`；直接执行 skill 使用本地 `run`。
-2. 在调用方解析 `in` 和 `sessions`，为 CLI 准备输入消息、资源目录、父 workflow 已解析的指令列表及显式导入的实际会话绑定。
-3. `ref` 指向当前会话时，按相同指令展开规则在当前调用栈执行。跨会话调用使用 CLI 生成完整 prompt，再按 `in` 创建或复用目标会话，保存调用位置绑定。
+1. 从用户请求或前驱取得输入，读取所选 workflow 的接口并核对交接材料。直接执行 skill 使用本地 `run`。
+2. 对于 `use` 调用，在调用方解析 `in` 和 `sessions`，为 CLI 准备输入消息、父 workflow 已解析的指令列表及显式导入的实际会话绑定。
+3. `ref` 指向当前会话时，按相同指令展开规则在当前调用栈执行。跨会话调用使用 CLI 生成完整 prompt，再按 `in` 创建或复用目标会话。
 4. 将生成的完整 prompt 原样投递一次，不追加解释或其他指令；生成失败时先处理错误再派发。按工具的完成机制等待真实结果，再按接口推进图或返回调用者。
 
-从本 skill 的安装位置取得 [scripts/abyss.py](scripts/abyss.py) 的绝对路径，按需准备交接文件，例如：
+从本 skill 的安装位置取得 [scripts/abyss.py](scripts/abyss.py) 的绝对路径，例如：
 
 ```sh
-scripts/abyss.py prompt workflow.yaml --input-file input.yaml --context context.yaml --output prompt.md
+scripts/abyss.py workflow.yaml \
+  --input '{"value":"任务正文"}' \
+  --parent-instructions '["skill:persona-mei"]' \
+  --sessions '{"reviewer":"session-123"}' \
+  --output prompt.md
 ```
 
-workflow 参数接受引用或 YAML/JSON 文件；完整选项见 `prompt --help`。CLI 也可生成独立 `run` 的本地预览，该预览只在当前会话使用。具体输入默认值、指令展开和结构校验由 CLI 处理；实际会话绑定、所引用子 workflow 的接口与交接正文语义由执行 agent 检查。
+workflow 参数接受引用或 YAML/JSON 文件；完整选项见 `--help`。CLI 也可生成独立 `run` 的本地预览，该预览只在当前会话使用。具体输入默认值、指令展开和结构校验由 CLI 处理；实际会话绑定、所引用子 workflow 的接口与交接正文语义由执行 agent 检查。

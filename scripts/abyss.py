@@ -5,16 +5,14 @@
 # ///
 """Render an Abyss execution prompt as this skill's standalone uv script.
 
-The calling agent owns graph execution, session creation, namespace bindings and
-temporary state. This script validates input and callee context, preserves
-workflow/action values and references skill:abyss. The selected workflow definition
-is read to check its interface and instructions. Whole-field or list-item ^ in
-workflow instructions is replaced with the caller's list; this materializes a
-referenced definition inline while preserving instruction order and duplicates.
-Caller-only context.parent is omitted from the prompt. Nested declarations and
-skill references remain unexpanded. Relative resource paths use the skill root.
-It can be copied and executed from any working directory; uv provides the
-dependencies declared above. Stdout contains only the prompt; errors use stderr.
+The calling agent owns graph execution, session creation and namespace bindings.
+This script emits only workflow and input, referencing skill:abyss. Selected
+workflow references are read from this skill's workflows directory. Caller
+instructions expand ^ and imported session aliases become ref: {id: ...} in the
+selected workflow's scope. Changed references become inline definitions; nested
+workflows resolve on their own activation. Skill references stay unexpanded for
+the executing agent to resolve. The installed script works from any directory;
+uv provides its dependencies. Stdout contains only the prompt; errors use stderr.
 """
 
 import argparse
@@ -27,7 +25,7 @@ from typing import Any
 import yaml
 
 IDENTIFIER = re.compile(r"[A-Za-z][A-Za-z0-9_-]*\Z")
-RESOURCE_DEFAULTS = {"skills": "skills", "workflows": "workflows"}
+WORKFLOWS_DIR = Path(__file__).resolve().parents[1] / "workflows"
 
 
 class InvocationError(ValueError):
@@ -84,13 +82,22 @@ def fields(value: dict, allowed: set[str], label: str) -> None:
         raise InvocationError(f"unknown {label} fields: {', '.join(sorted(unknown))}")
 
 
+def validate_resource_ref(value: str, prefix: str) -> None:
+    """Keep resource paths within the DSL's slash-separated identifier grammar."""
+    path = value.removeprefix(prefix)
+    if not value.startswith(prefix) or any(
+        not IDENTIFIER.fullmatch(part) for part in path.split("/")
+    ):
+        raise InvocationError(f"invalid {prefix} reference: {value}")
+
+
 def skills(value: Any, label: str) -> list[str]:
     if not isinstance(value, list):
         raise InvocationError(f"{label} must be a list of skill values")
     for skill in value:
         text(skill, label)
-        if skill.startswith("skill:") and not skill.removeprefix("skill:"):
-            raise InvocationError(f"{label} contains an empty skill reference")
+        if skill.startswith("skill:"):
+            validate_resource_ref(skill, "skill:")
     return value
 
 
@@ -124,13 +131,23 @@ def validate_action(value: Any) -> dict[str, Any]:
     return action
 
 
+def validate_ref(value: Any, label: str) -> None:
+    """Distinguish a local alias from an opaque, already resolved session ID."""
+    if isinstance(value, str):
+        identifier(value, label)
+    else:
+        value = mapping(value, label)
+        fields(value, {"id"}, label)
+        text(value.get("id"), f"{label}.id")
+
+
 def validate_use(value: Any) -> dict[str, Any]:
     """Check a workflow call's declared selector, not its runtime bindings."""
     call = mapping(value, "use call")
     fields(call, {"use", "in", "sessions"}, "use call")
     selector = mapping(call.get("in"), "use call.in")
     if set(selector) == {"ref"}:
-        identifier(selector["ref"], "use call.in.ref")
+        validate_ref(selector["ref"], "use call.in.ref")
     elif set(selector) == {"new"}:
         config = mapping(selector["new"], "use call.in.new")
         fields(config, {"as", "workspace", "history"}, "use call.in.new")
@@ -149,7 +166,7 @@ def validate_use(value: Any) -> dict[str, Any]:
             continue
         binding = mapping(binding, "use call.sessions binding")
         fields(binding, {"ref"}, "use call.sessions binding")
-        identifier(binding.get("ref"), "use call.sessions binding.ref")
+        validate_ref(binding.get("ref"), "use call.sessions binding.ref")
     validate_workflow(call.get("use"))
     return call
 
@@ -235,8 +252,7 @@ def validate_workflow(value: Any) -> dict[str, Any] | None:
     resolved only when selected for execution; nested declarations stay unchanged.
     """
     if isinstance(value, str):
-        if not value.startswith("workflow:") or not value.removeprefix("workflow:"):
-            raise InvocationError("use must be a workflow: reference or an object")
+        validate_resource_ref(value, "workflow:")
         return None
     definition = mapping(value, "workflow")
     fields(
@@ -276,48 +292,67 @@ def validate_workflow(value: Any) -> dict[str, Any] | None:
     return definition
 
 
-def validate_context(value: Any) -> dict[str, Any]:
-    """Check resources, explicit imports and caller-only inheritance input."""
-    context = {} if value is None else mapping(value, "context")
-    fields(context, {"resources", "parent", "sessions"}, "context")
-    resources = mapping(context.get("resources", {}), "context.resources")
-    fields(resources, {"skills", "workflows"}, "context.resources")
-    resources = {**RESOURCE_DEFAULTS, **resources}
-    for kind, location in resources.items():
-        text(location, f"context.resources.{kind}")
-    parent = mapping(context.get("parent", {}), "context.parent")
-    fields(parent, {"instructions"}, "context.parent")
-    skills(parent.get("instructions", []), "context.parent.instructions")
-    if "^" in parent.get("instructions", []):
-        raise InvocationError("context.parent.instructions must already be resolved")
-    sessions = context.get("sessions", [])
-    if not isinstance(sessions, list):
-        raise InvocationError(
-            "context.sessions must be a list of {ref, value} bindings"
-        )
-    aliases = set()
-    for binding in sessions:
-        binding = mapping(binding, "context.sessions binding")
-        fields(binding, {"ref", "value"}, "context.sessions binding")
-        alias = identifier(binding.get("ref"), "context.sessions.ref")
-        text(binding.get("value"), "context.sessions.value (session ID)")
-        if alias in aliases:
-            raise InvocationError(f"duplicate context.sessions ref: {alias}")
-        aliases.add(alias)
-    return {"resources": resources, "parent": parent, "sessions": sessions}
+def bind_workflow_sessions(
+    definition: dict[str, Any], sessions: dict[str, str]
+) -> dict[str, Any]:
+    """Inline imported IDs at this workflow's call sites, preserving child scopes."""
+
+    nodes = (
+        {"node": definition["node"]}
+        if "node" in definition
+        else definition["graph"]["nodes"]
+    )
+    aliases = set(sessions)
+    for node in nodes.values():
+        if "use" in node and "new" in node["in"] and "as" in node["in"]["new"]:
+            alias = node["in"]["new"]["as"]
+            if alias in aliases:
+                raise InvocationError(f"duplicate session alias: {alias}")
+            aliases.add(alias)
+
+    def bind_ref(ref):
+        if isinstance(ref, str):
+            if ref in sessions:
+                return {"id": sessions[ref]}
+            if ref not in aliases:
+                raise InvocationError(f"unbound session reference: {ref}")
+        return ref
+
+    bound_nodes = {}
+    for name, node in nodes.items():
+        if "run" in node:
+            bound_nodes[name] = node
+            continue
+        bound = {**node}
+        selector = node["in"]
+        if "ref" in selector:
+            bound["in"] = {"ref": bind_ref(selector["ref"])}
+        if "sessions" in node:
+            bound["sessions"] = {
+                alias: binding
+                if binding == "current"
+                else {"ref": bind_ref(binding["ref"])}
+                for alias, binding in node["sessions"].items()
+            }
+        bound_nodes[name] = bound
+    if "node" in definition:
+        return {**definition, "node": bound_nodes["node"]}
+    return {**definition, "graph": {**definition["graph"], "nodes": bound_nodes}}
 
 
 def prepare_invocation(
     workflow: Any,
     input_message: Any = None,
-    context: Any = None,
+    *,
+    parent_instructions: Any = None,
+    sessions: Any = None,
 ) -> dict[str, Any]:
-    """Prepare a workflow handoff or local action preview without caller context.
+    """Prepare a workflow/input handoff with generation-only caller parameters.
 
-    ``workflow`` accepts a workflow definition/reference, a use call or a local
-    run action. Workflow definitions declare graph or node and named interfaces.
-    A use call must declare ref/new; the host resolves its bindings, so only its
-    use value goes to the callee. A standalone run action stays local and has
+    ``workflow`` accepts a target workflow definition/reference or a local run
+    action. The caller handles the outer use call and supplies resolved imports.
+    Workflow definitions declare graph or node and named interfaces.
+    A standalone run action stays local and has
     one anonymous port per omitted interface, represented internally by None.
     Anonymous input envelopes omit type; null and placeholder names are invalid.
     Non-string JSON input bodies are serialized as text, with enum tags kept
@@ -326,36 +361,43 @@ def prepare_invocation(
     The selected referenced definition is read even for explicit input types.
     A whole-field or list-item ^ in the selected workflow's instructions expands
     the parent's list, defaulting to []; order and duplicates are preserved.
-    Referenced inheriting workflows become inline. Instructions without ^ never
-    inherit. Nested workflows resolve on their own activation. The output context
-    contains resources and sessions.
-    The original workflow, input, context and resource files are never mutated.
+    Imported session aliases map to actual IDs and are inlined in this workflow's
+    ref values, including sources in child calls' sessions mappings. New aliases
+    remain runtime bindings. Changed referenced workflows become inline; nested
+    definitions resolve on their own activation. Output contains only workflow
+    and input. Caller documents and resource files are never mutated.
     """
+    if isinstance(workflow, dict) and "use" in workflow:
+        raise InvocationError(
+            "prompt accepts a workflow definition/reference or run action; "
+            "pass the use call's use value and resolved imports"
+        )
     is_action = isinstance(workflow, dict) and "run" in workflow
+    selected = workflow
     if is_action:
-        selected = workflow
         definition = validate_action(selected)
         input_ports = definition.get("input_type")
     else:
-        selected = (
-            validate_use(workflow)["use"]
-            if isinstance(workflow, dict) and "use" in workflow
-            else workflow
-        )
         definition = validate_workflow(selected)
         input_ports = definition["input_type"] if definition is not None else None
-    context = validate_context(context)
+    parent_instructions = skills(
+        [] if parent_instructions is None else parent_instructions,
+        "parent instructions",
+    )
+    if "^" in parent_instructions:
+        raise InvocationError("parent instructions must already be resolved")
+    sessions = mapping({} if sessions is None else sessions, "sessions")
+    for alias, session_id in sessions.items():
+        identifier(alias, "sessions alias")
+        text(session_id, "sessions session ID")
     if definition is None:
-        directory = Path(context["resources"]["workflows"])
-        if not directory.is_absolute():
-            directory = Path(__file__).resolve().parents[1] / directory
-        path = directory / f"{selected.removeprefix('workflow:')}.yaml"
+        path = WORKFLOWS_DIR / f"{selected.removeprefix('workflow:')}.yaml"
         definition = validate_workflow(parse_document(path.read_text(encoding="utf-8")))
         if definition is None:
             raise InvocationError("referenced workflow must contain a definition")
         input_ports = definition["input_type"]
-    parent = context.pop("parent")
     if not is_action:
+        resolved_definition = bind_workflow_sessions(definition, sessions)
         instructions = definition.get("instructions", [])
         if instructions == "^":
             instructions = ["^"]
@@ -363,10 +405,12 @@ def prepare_invocation(
             resolved = []
             for instruction in instructions:
                 if instruction == "^":
-                    resolved.extend(parent.get("instructions", []))
+                    resolved.extend(parent_instructions)
                 else:
                     resolved.append(instruction)
-            selected = {**definition, "instructions": resolved}
+            resolved_definition["instructions"] = resolved
+        if resolved_definition != definition:
+            selected = resolved_definition
 
     message = {} if input_message is None else mapping(input_message, "input message")
     fields(message, {"type", "value"}, "input message")
@@ -388,16 +432,26 @@ def prepare_invocation(
     return {
         "workflow": selected,
         "input": message,
-        "context": context,
     }
 
 
-def render_prompt(workflow: Any, input_message: Any = None, context: Any = None) -> str:
-    """Serialize resolved instructions, input and context without parent metadata."""
-    invocation = prepare_invocation(workflow, input_message, context)
+def render_prompt(
+    workflow: Any,
+    input_message: Any = None,
+    *,
+    parent_instructions: Any = None,
+    sessions: Any = None,
+) -> str:
+    """Serialize workflow and input after resolving generation parameters."""
+    invocation = prepare_invocation(
+        workflow,
+        input_message,
+        parent_instructions=parent_instructions,
+        sessions=sessions,
+    )
     payload = json.dumps(invocation, ensure_ascii=False, indent=2, allow_nan=False)
     return (
-        "请读取并遵循 skill:abyss，使用以下 workflow、input 和 context 执行本次工作；workflow 定义使用 graph 或 node，独立 run 声明在当前会话执行动作。\n\n"
+        "请读取并遵循 skill:abyss，使用以下 workflow 和 input 执行本次工作；workflow 定义使用 graph 或 node，独立 run 声明在当前会话执行动作。\n\n"
         "```json\n" + payload + "\n```\n"
     )
 
@@ -409,31 +463,43 @@ def read_document(path: str):
     return parse_document(content)
 
 
+def read_parameter(inline: str | None, path: str | None) -> Any:
+    if inline is not None:
+        return parse_document(inline)
+    if path is not None:
+        return read_document(path)
+    return None
+
+
 def main(argv: list[str] | None = None) -> int:
-    parser = argparse.ArgumentParser(prog="abyss")
-    commands = parser.add_subparsers(dest="command", required=True)
-    prompt = commands.add_parser(
-        "prompt", help="render a workflow handoff or local action"
+    parser = argparse.ArgumentParser(
+        prog="abyss", description="Render a workflow handoff or local action."
     )
-    prompt.add_argument(
+    parser.add_argument(
         "workflow",
-        help="YAML/JSON workflow, use call or run action, workflow: ref, or -",
+        help="workflow: reference, YAML/JSON workflow definition or run action file, or -",
     )
-    inputs = prompt.add_mutually_exclusive_group()
-    inputs.add_argument(
-        "--input",
-        help='optional input message as JSON: {"value": "natural-language text"}',
-    )
-    inputs.add_argument("--input-file", help="YAML/JSON input message file, or -")
-    prompt.add_argument(
-        "--context",
-        help="generation context (resources, caller-only parent, sessions) as YAML/JSON, or -",
-    )
-    prompt.add_argument(
+    for name, description in (
+        ("input", 'input message, e.g. {"value":"task text"}'),
+        ("parent-instructions", "resolved parent skill list for ^ expansion"),
+        ("sessions", "imported alias-to-session-ID mapping"),
+    ):
+        group = parser.add_mutually_exclusive_group()
+        group.add_argument(f"--{name}", help=f"{description}, as inline JSON")
+        group.add_argument(
+            f"--{name}-file", help=f"{description}, as a YAML/JSON file or -"
+        )
+    parser.add_argument(
         "-o", "--output", help="write the prompt to a UTF-8 file instead of stdout"
     )
     args = parser.parse_args(argv)
-    if sum(path == "-" for path in (args.workflow, args.input_file, args.context)) > 1:
+    documents = (
+        args.workflow,
+        args.input_file,
+        args.parent_instructions_file,
+        args.sessions_file,
+    )
+    if sum(path == "-" for path in documents) > 1:
         parser.error("only one input document can use stdin (-)")
     try:
         workflow = (
@@ -441,13 +507,14 @@ def main(argv: list[str] | None = None) -> int:
             if args.workflow.startswith("workflow:")
             else read_document(args.workflow)
         )
-        input_message = None
-        if args.input is not None:
-            input_message = parse_document(args.input)
-        elif args.input_file is not None:
-            input_message = read_document(args.input_file)
-        context = read_document(args.context) if args.context else None
-        rendered = render_prompt(workflow, input_message, context)
+        rendered = render_prompt(
+            workflow,
+            read_parameter(args.input, args.input_file),
+            parent_instructions=read_parameter(
+                args.parent_instructions, args.parent_instructions_file
+            ),
+            sessions=read_parameter(args.sessions, args.sessions_file),
+        )
         if args.output:
             Path(args.output).write_text(rendered, encoding="utf-8")
         else:
