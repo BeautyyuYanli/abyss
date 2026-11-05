@@ -63,7 +63,39 @@ graph:
           done: "本方面的审查报告，包含方面标识、PASS 或 FAILED、标注 P0–P3 并按优先级从高到低排列的问题及证据。"
         instructions:
           - skill:persona-eden
-          - "The fixed aspect identifier is test-hygiene. Review test hygiene only. Prefer deleting redundant, meaningless, or misleading tests, especially new tests. Identify meaningless negative checks such as 'something does not exist' and tests exhibiting the Texas sharpshooter fallacy. Recommend removal before adding or restructuring tests."
+          - |
+            The fixed aspect identifier is test-hygiene. Review test value, assertion effectiveness, and maintenance cost only. Leave coverage gaps and execution-boundary sufficiency to test-adequacy.
+
+            ## 范围与目标
+
+            让测试捕获可信回归，并控制维护与执行成本。根据断言实际保护的行为判断价值，不以测试数量、覆盖率或删行数作为目标。
+            日常编写和 review 只检查本次变更涉及的契约与相关覆盖；明确的测试清理按指定范围进行。不因涉及测试就扩展到整个子系统。仅运行现有测试或不改变测试含义的机械编辑不需要额外测试价值审查。
+
+            ## 独立价值与清理依据
+
+            结合实现、调用方和现有覆盖，判断测试保护的调用者可观察行为、内部不变式或独立契约，以及哪种可信回归会让它失败。兼容性依据应来自已发布承诺、实际调用方或明确支持范围。
+            判断没有价值前读完整用例和参数表，核对名称、输入与断言是否一致，不能凭名称、慢速或“静态测试”标签删除。
+            确认已有测试为什么抓不住该回归；可以扩展现有参数表或共享 fixture 时优先复用。每个契约明确主要测试归属，避免多个层重复证明同一内部决策，跨层覆盖需要说明各自独立的风险。
+            内部算法不变式、SDK 参数转换、协议字节、存储兼容、平台行为和生命周期可以是独立契约，不能只因最终结果相同就合并。只在保留契约与独立回归保护的前提下建议合并或清理；正常重构不应要求同步改写无关行为断言。
+
+            ## 断言有效性
+
+            - 期望值应独立于被测决策。避免自比较、从被测结果复制期望值、让 mock 直接产生要验证的行为；mock 外部 I/O 可以合理，目标行为应由真实生产代码完成。
+            - 属性测试和 round-trip 可以保护独立不变式，但编码与解码共享错误时仍可能通过；格式兼容需要独立 fixture 或规范依据。
+            - 负向用例必须到达目标检查并因预期原因失败。错误类型、阶段或关键诊断应足以排除无关的前置失败，不能只满足“发生了异常”，也不能仅因断言“某物不存在”就判为无意义。
+            - 持久化、恢复和异步完成应经过真实写入、重新打开或结果消费路径；不能用 fixture 预置的结果、内存副本或动作返回替代所声明的完成状态。
+            - 源码字符串、调用次数、顺序和精确字节的断言需要独立契约依据。协议、计费和可观察顺序可以要求精确匹配；锁定私有函数名或内部调用形状通常只增加重构成本。
+
+            ## 测试接缝
+
+            没有生产调用方的导出、参数或 wrapper 是调查线索，不是删除依据。仅为读取私有状态或重演内部实现而新增生产接口时，优先建议在已有行为边界验证。
+            合理的时钟、随机源、trait/fake 和故障注入可以保留，尤其是确定性验证并发、超时与错误恢复所必需的接缝；不要为了消除它们引入 sleep、真实网络或更复杂的测试设施。
+
+            ## 验证与交付
+
+            使用仓库现有测试入口、工具链和 CI 路由，复用仍有效的相关验证；需要检查合并或清理的影响时，先验证受影响契约及相关相邻路径，只因失败、输入变化或具体覆盖缺口扩大范围。
+            运行成本影响选择时再测量，不引入统一秒数阈值、测试行数配额或每次必跑的变异测试。
+            保留本方面报告的标识、PASS 或 FAILED、问题优先级及具体证据；只报告影响判断的测试选择、发现和验证缺口，不为价值判断生成例行逐项报告。审查只提出建议，不修改实现或测试。
         node:
           run:
             - skill:impl-review
@@ -80,7 +112,36 @@ graph:
           done: "本方面的审查报告，包含方面标识、PASS 或 FAILED、标注 P0–P3 并按优先级从高到低排列的问题及证据。"
         instructions:
           - skill:persona-eden
-          - "The fixed aspect identifier is test-adequacy. Review test adequacy only: whether meaningful tests sufficiently verify the task's behavior and relevant regressions."
+          - |
+            The fixed aspect identifier is test-adequacy. Review whether meaningful tests sufficiently verify the changed contracts and relevant regressions. Leave redundant-test cleanup and assertion-maintenance findings to test-hygiene; ineffective assertions cannot count as coverage evidence.
+
+            ## 范围与目标
+
+            让测试捕获可信回归，并控制维护与执行成本。按实际保护的行为判断覆盖，不以测试数量、覆盖率或删行数作为目标。
+            日常编写和 review 只检查本次变更涉及的契约与相关覆盖；明确的测试清理按指定范围进行。不因涉及测试就扩展到整个子系统。仅运行现有测试或不改变测试含义的机械编辑不需要额外测试充分性审查。
+
+            ## 契约与可信回归
+
+            结合实现、调用方和现有覆盖，判断新增或修改测试是否值得存在，以及是否确有覆盖缺口：
+
+            1. 保护哪个调用者可观察行为、内部不变式或独立契约？兼容性依据应来自已发布承诺、实际调用方或明确支持范围。
+            2. 哪种可信回归会让它失败？输入是否到达该行为，断言是否能区分正确与错误实现？
+            3. 已有测试为什么抓不住？可以扩展现有参数表或共享 fixture 时优先复用；跨层覆盖需要说明各自独立的风险。
+            4. 哪个执行边界能以合理成本直接证明它？比较独立单元契约、聚焦集成和真实环境验证，选择确实覆盖目标且便于诊断失败的方式。
+
+            ## 覆盖归属与边界
+
+            每个契约明确主要测试归属，避免多个层重复证明同一内部决策。内部算法不变式、SDK 参数转换、协议字节、存储兼容、平台行为和生命周期可以是独立契约；不能只因最终结果相同就合并，也不要求正常重构同步改写无关行为断言。
+            覆盖证据必须由真实生产代码完成目标行为，期望值独立于被测决策；mock 外部 I/O 不等于验证真实环境行为。属性测试和 round-trip 可以证明独立不变式，但不能排除编码与解码共享错误，格式兼容需独立 fixture 或规范依据。
+            负向覆盖必须到达目标检查并因预期原因失败，错误类型、阶段或关键诊断应排除无关的前置失败。持久化、恢复和异步完成需经过真实写入、重新打开或结果消费路径，fixture 预置结果、内存副本或动作返回不能证明所声明的完成状态。
+            建议补充验证时优先使用已有行为边界及合理的时钟、随机源、trait/fake 和故障注入接缝，保留确定性；不要用 sleep、真实网络或更复杂的测试设施替代这些接缝。真实环境验证应由所声明的契约决定。
+
+            ## 回归证据与验证范围
+
+            缺陷回归优先在修复前因目标缺陷失败、修复后通过；失败若来自 fixture、权限或环境，不能作为该回归的证据。原版本无法运行时，说明原因、替代证据和未证明的部分。已有相关验证仍有效时复用。
+            使用仓库现有测试入口、工具链和 CI 路由，先验证受影响契约及相关相邻路径。只因失败、输入变化或具体覆盖缺口扩大范围。
+            运行成本影响选择时再测量，不引入统一秒数阈值、测试行数配额或每次必跑的变异测试。
+            保留本方面报告的标识、PASS 或 FAILED、问题优先级及具体证据；只报告影响判断的测试选择、发现和验证缺口，不为四个问题生成例行报告。审查只提出建议，不修改实现或测试。
         node:
           run:
             - skill:impl-review
