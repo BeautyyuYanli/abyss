@@ -150,9 +150,20 @@ def validate_use(value: Any) -> dict[str, Any]:
         validate_ref(selector["ref"], "use call.in.ref")
     elif set(selector) == {"new"}:
         config = mapping(selector["new"], "use call.in.new")
-        fields(config, {"as", "workspace", "history"}, "use call.in.new")
+        fields(
+            config,
+            {"as", "agent", "workspace", "history", "reuse"},
+            "use call.in.new",
+        )
         if "as" in config:
             identifier(config["as"], "use call.in.new.as")
+        if "agent" in config:
+            text(config["agent"], "use call.in.new.agent")
+        reuse = config.get("reuse", True)
+        if not isinstance(reuse, bool):
+            raise InvocationError("use call.in.new.reuse must be a boolean")
+        if not reuse and "as" in config:
+            raise InvocationError("use call.in.new.as requires reuse to be true")
         if config.get("workspace", "^") not in ("^", "fork", "none"):
             raise InvocationError("use call.in.new.workspace must be ^, fork or none")
         if config.get("history", "none") not in ("fork", "none"):

@@ -226,6 +226,15 @@ class InvocationTests(unittest.TestCase):
             {"ref": ""},
             {"ref": "invalid.alias"},
             {"new": None},
+            {"new": {"agent": ""}},
+            {"new": {"agent": " "}},
+            {"new": {"agent": None}},
+            {"new": {"agent": 1}},
+            {"new": {"role": "Mei"}},
+            {"new": {"reuse": "false"}},
+            {"new": {"reuse": None}},
+            {"new": {"reuse": 0}},
+            {"new": {"as": "worker", "reuse": False}},
             {"new": {"history": "current"}},
             {"new": {"workspace": "current"}},
         )
@@ -448,6 +457,30 @@ class InvocationTests(unittest.TestCase):
                     abyss.prepare_invocation(
                         definition, sessions={"other": "session-123"}
                     )
+
+    def test_new_selector_preserves_optional_agent_preset(self):
+        for agent in (
+            "Mei",
+            "Codex(gpt-6.1-sol, reasoning:max , priority:fast, permission:full)",
+            "Antigrativity(gemini-4-argon, reasoning:medium, permission:YOLO)",
+        ):
+            definition = single_step_workflow()
+            definition["node"] = {
+                "use": "workflow:unavailable",
+                "in": {
+                    "new": {
+                        "agent": agent,
+                        "workspace": "^",
+                        "history": "none",
+                        "reuse": False,
+                    }
+                },
+            }
+            original = copy.deepcopy(definition)
+            with self.subTest(agent=agent):
+                result = abyss.prepare_invocation(definition)
+                self.assertEqual(result["workflow"], original)
+                self.assertEqual(definition, original)
 
     def test_new_aliases_allow_forward_references_and_runtime_reuse(self):
         definition = workflow()

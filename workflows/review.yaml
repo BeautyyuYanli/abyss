@@ -1,0 +1,43 @@
+input_type:
+  task: "待审查的设计稿标识或路径，以及可选的背景与关注点。"
+output_type:
+  done: "已直接落实进设计稿的修复摘要，以及待讨论事项的各候选方案优劣分析与结论。"
+instructions:
+  - skill:persona-mei
+graph:
+  nodes:
+    review-codex:
+      use:
+        input_type:
+          review: "待审查的设计稿标识或路径及背景说明；在共享工作区只读审查该设计稿及关联代码。"
+        output_type:
+          done: "独立审查报告，按有明确解决方案的问题与需权衡讨论的问题列出发现、依据与具体建议。"
+        instructions: ^
+        node:
+          run: "定位并精读目标设计稿及相关代码，以足够正确且不过度工程化为标准审查设计、接口、数据模型与生命周期问题。保持设计稿文件不变，返回带具体依据的审查报告。"
+      in:
+        new:
+          agent: "Codex(gpt-6.1-sol, reasoning:max , priority:fast, permission:full)"
+          workspace: ^
+          history: none
+    review-antigravity:
+      use:
+        input_type:
+          review: "待审查的设计稿标识或路径及背景说明；在共享工作区只读审查该设计稿及关联代码。"
+        output_type:
+          done: "独立审查报告，按有明确解决方案的问题与需权衡讨论的问题列出发现、依据与具体建议。"
+        instructions: ^
+        node:
+          run: "定位并精读目标设计稿及相关代码，以足够正确且不过度工程化为标准审查设计、接口、数据模型与生命周期问题。保持设计稿文件不变，返回带具体依据的审查报告。"
+      in:
+        new:
+          agent: "Antigrativity(gemini-4-argon, reasoning:medium, permission:YOLO)"
+          workspace: ^
+          history: none
+    resolve:
+      run:
+        - "结合当前工作区中的设计稿原文与相关代码核实两份审查报告，剔除不成立、重复或导致过度工程化的建议。"
+        - "对于核实成立且有明确解决方案的问题，直接原地修复进设计稿；对于需要讨论的问题，详细分析不同选择的优劣（以足够正确而不过度工程化为标准）并与用户讨论。"
+  edges:
+    - start.task -> [review-codex.review, review-antigravity.review] -> resolve
+    - resolve -> end.done

@@ -1,0 +1,49 @@
+input_type:
+  task: "待审查并自动收敛的设计稿标识或路径，以及可选的背景与关注点。"
+output_type:
+  done: "多轮审查与自动收敛后的最终报告，包含各轮落实进设计稿的修改摘要，以及因违背简单性原则或属于具体实现细节而不再采纳的意见说明。"
+instructions:
+  - skill:persona-mei
+graph:
+  nodes:
+    review-codex:
+      use:
+        input_type:
+          review: "待审查的设计稿标识或路径及背景说明；在共享工作区以全新上下文只读审查当前设计稿及关联代码。"
+        output_type:
+          done: "独立审查报告，聚焦设计稿应定义的设计、接口、数据模型与生命周期问题，附具体依据与简化或修复建议。"
+        instructions: ^
+        node:
+          run: "定位并精读共享工作区中的当前设计稿及相关代码，以足够正确而不过度工程化、简单到明显没有错误而不是复杂到没有明显错误为标准，只读审查设计稿应定义的设计、接口、数据模型与生命周期问题。不纠缠具体实现层的细枝末节，不修改任何文件，返回带具体依据的审查报告。"
+      in:
+        new:
+          agent: "Codex(gpt-6.1-sol, reasoning:max , priority:fast, permission:full)"
+          workspace: ^
+          history: none
+          reuse: false
+    review-antigravity:
+      use:
+        input_type:
+          review: "待审查的设计稿标识或路径及背景说明；在共享工作区以全新上下文只读审查当前设计稿及关联代码。"
+        output_type:
+          done: "独立审查报告，聚焦设计稿应定义的设计、接口、数据模型与生命周期问题，附具体依据与简化或修复建议。"
+        instructions: ^
+        node:
+          run: "定位并精读共享工作区中的当前设计稿及相关代码，以足够正确而不过度工程化、简单到明显没有错误而不是复杂到没有明显错误为标准，只读审查设计稿应定义的设计、接口、数据模型与生命周期问题。不纠缠具体实现层的细枝末节，不修改任何文件，返回带具体依据的审查报告。"
+      in:
+        new:
+          agent: "Antigrativity(gemini-4-argon, reasoning:medium, permission:YOLO)"
+          workspace: ^
+          history: none
+          reuse: false
+    resolve:
+      run:
+        - "结合当前工作区中的设计稿原文与相关代码核实本轮两份审查报告，剔除不成立、重复、违背（简单到明显没有错误，而不是复杂到没有明显错误）原则、或已过于细枝末节到具体实现上而非设计稿应定义内容的意见。"
+        - "对保留的有效问题，无需等待用户讨论，直接比较候选方案并采纳最符合（足够正确而不过度工程化）及（简单到明显没有错误，而不是复杂到没有明显错误）原则的方案原地修复进设计稿。若本轮已无值得修改的设计稿级问题（问题已全部解决，或剩余意见均违背上述简单性原则、或均已落入具体实现细枝末节），选择 done 输出最终收敛摘要；若本轮对设计稿进行了实质修改且需复核，选择 continue 仅携带目标设计稿标识或路径及原始任务背景（不附带历次审查报告或修改记录），开启下一轮全新上下文的并行审查。"
+      output_type:
+        continue: "目标设计稿标识或路径及原始任务背景，供下一轮全新创建的审查会话独立审查更新后的设计稿。"
+        done: "最终收敛报告，汇总已落实进设计稿的全部关键修改、设计取舍依据，以及终止循环时剔除细枝末节或过度复杂建议的说明。"
+  edges:
+    - start.task -> [review-codex.review, review-antigravity.review] -> resolve
+    - resolve.continue -> [review-codex.review, review-antigravity.review] -> resolve
+    - resolve.done -> end.done
