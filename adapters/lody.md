@@ -25,7 +25,7 @@
 | `fork` | 为调用者所在的本地项目创建独立 worktree：`workContext` 使用 `kind: local`、对应的 `projectId` 和 `worktree: true`。调用者没有工作空间时不支持。 |
 | `none` | 创建不绑定项目的 chat：`workContext` 使用 `kind: chat`。 |
 
-`useCurrentSessionAsParent: true` 与 `workContext` 互斥。若宿主拒绝嵌套子会话，可使用对应本地项目及 `worktree: false` 创建独立 session，但须确认其实际目录与调用者相同。
+`useCurrentSessionAsParent: true` 与 `workContext` 互斥。若宿主禁止嵌套子会话（拒绝 `useCurrentSessionAsParent: true`），可为调用者所在的本地项目创建新的 Lody worktree session（`workContext` 使用 `kind: local`、对应的 `projectId` 和 `worktree: true`）作为替代，并确保目标会话可访问任务所需的文件状态或路径；若调用者位于主工作树且实际目录相同，也可使用 `worktree: false`。
 
 创建 worktree 后，额外核对未提交内容已按 DSL 的 `fork` 契约复制。
 
